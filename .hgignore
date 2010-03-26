@@ -1,0 +1,9 @@
+syntax: glob
+build
+docs/html
+docs/*.pdf
+dist
+MANIFEST
+*.pyc
+*.pyo
+*~
