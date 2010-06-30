@@ -50,12 +50,28 @@ class PCSide(object):
     R = RIGHT
     S = SYMMETRIC
 
+class PCASMType(object):
+    NONE        = PC_ASM_NONE
+    BASIC       = PC_ASM_BASIC
+    RESTRICT    = PC_ASM_RESTRICT
+    INTERPOLATE = PC_ASM_INTERPOLATE
+
+class PCCompositeType(object):
+    ADDITIVE                 = PC_COMPOSITE_ADDITIVE
+    MULTIPLICATIVE           = PC_COMPOSITE_MULTIPLICATIVE
+    SYMMETRIC_MULTIPLICATIVE = PC_COMPOSITE_SYMMETRIC_MULTIPLICATIVE
+    SPECIAL                  = PC_COMPOSITE_SPECIAL
+    SCHUR                    = PC_COMPOSITE_SCHUR
+
 # --------------------------------------------------------------------
 
 cdef class PC(Object):
 
     Type = PCType
     Side = PCSide
+
+    ASMType       = PCASMType
+    CompositeType = PCCompositeType
 
     #
 
@@ -100,7 +116,7 @@ cdef class PC(Object):
         CHKERR( PCSetOptionsPrefix(self.pc, str2cp(prefix)) )
 
     def getOptionsPrefix(self):
-        cdef const_char_p prefix = NULL
+        cdef const_char *prefix = NULL
         CHKERR( PCGetOptionsPrefix(self.pc, &prefix) )
         return cp2str(prefix)
 
@@ -142,7 +158,8 @@ cdef class PC(Object):
         CHKERR( PCApplySymmetricRight(self.pc, x.vec, y.vec) )
 
 
-    #
+    # Python
+    # ------
 
     def createPython(self, context=None, comm=None):
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
@@ -165,11 +182,71 @@ cdef class PC(Object):
     def setPythonType(self, py_type):
         CHKERR( PCPythonSetType(self.pc, str2cp(py_type)) )
 
-    #
+    # ASM
+    # ---
+
+    def setASMType(self, asmtype):
+        cdef PetscPCASMType  cval = asmtype
+        CHKERR( PCASMSetType(self.pc, cval) )
+
+    def setASMOverlap(self, overlap):
+        cdef PetscInt ival = asInt(overlap)
+        CHKERR( PCASMSetOverlap(self.pc, ival) )
+
+    def setASMLocalSubdomains(self, nsd):
+        cdef PetscInt n = asInt(nsd)
+        CHKERR( PCASMSetLocalSubdomains(self.pc, n, NULL, NULL) )
+
+    def setASMTotalSubdomains(self, nsd):
+        cdef PetscInt N = asInt(nsd)
+        CHKERR( PCASMSetTotalSubdomains(self.pc, N, NULL, NULL) )
+
+    def getASMSubKSP(self):
+        cdef PetscInt i = 0, n = 0
+        cdef PetscKSP *p = NULL
+        CHKERR( PCASMGetSubKSP(self.pc, &n, NULL, &p) )
+        return [ref_KSP(p[i]) for i from 0 <= i <n]
+
+    # FieldSplit
+    # ----------
+
+    def setFieldSplitType(self, ctype):
+        cdef PetscPCCompositeType cval = ctype
+        CHKERR( PCFieldSplitSetType(self.pc, cval) )
+
+    def setFieldSplitIS(self, *fields):
+        cdef object name = None
+        cdef IS field = None
+        for name, field in fields:
+            CHKERR( PCFieldSplitSetIS(self.pc, str2cp(name), field.iset) )
+
+    def setFieldSplitFields(self, bsize, *fields):
+        cdef PetscInt bs = asInt(bsize)
+        CHKERR( PCFieldSplitSetBlockSize(self.pc, bs) )
+        cdef object name = None
+        cdef object field = None
+        cdef PetscInt nfields = 0, *ifields = NULL
+        for name, field in fields:
+            field = iarray_i(field, &nfields, &ifields)
+            CHKERR( PCFieldSplitSetFields(self.pc, str2cp(name), 
+                                          nfields, ifields) )
+
+    def getFieldSplitSubKSP(self):
+        cdef PetscInt i = 0, n = 0
+        cdef PetscKSP *p = NULL
+        cdef object subksp = None
+        try:
+            CHKERR( PCFieldSplitGetSubKSP(self.pc, &n, &p) )
+            subksp = [ref_KSP(p[i]) for i from 0 <= i <n]
+        finally:
+            CHKERR( PetscFree(p) )
+        return subksp
 
 # --------------------------------------------------------------------
 
 del PCType
 del PCSide
+del PCASMType
+del PCCompositeType
 
 # --------------------------------------------------------------------

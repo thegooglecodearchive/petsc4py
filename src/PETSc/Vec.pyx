@@ -150,13 +150,13 @@ cdef class Vec(Object):
         cdef PetscInt na=0
         cdef PetscScalar *sa=NULL
         array = iarray_s(array, &na, &sa)
-        cdef PetscInt b = 1 if bsize is None else bsize
-        if size is None: size = (na, PETSC_DECIDE)
+        cdef PetscInt b = 1 if bsize is None else asInt(bsize)
+        if size is None: size = (toInt(na), PETSC_DECIDE)
         cdef PetscInt bs=0, n=0, N=0
         CHKERR( Vec_SplitSizes(ccomm, size, bsize, &bs, &n, &N) )
-        if na < n: raise ValueError(
-            "array size %d and "
-            "vector local size %d block size %d" %(na, n, b))
+        if na < n:  raise ValueError(
+            "array size %d and vector local size %d block size %d" %
+            (toInt(na), toInt(n), toInt(bs)))
         cdef PetscVec newvec = NULL
         if comm_size(ccomm) == 1:
             CHKERR( VecCreateSeqWithArray(ccomm,n,sa,&newvec) )
@@ -176,9 +176,11 @@ cdef class Vec(Object):
         CHKERR( Vec_SplitSizes(ccomm, size, bsize, &bs, &n, &N) )
         cdef PetscVec newvec = NULL
         if bs == PETSC_DECIDE:
-            CHKERR( VecCreateGhost(ccomm,n,N,ng,ig,&newvec) )
+            CHKERR( VecCreateGhost(
+                    ccomm, n, N, ng, ig, &newvec) )
         else:
-            CHKERR( VecCreateGhostBlock(ccomm,bs,n,N,ng,ig,&newvec) )
+            CHKERR( VecCreateGhostBlock(
+                    ccomm, bs, n, N, ng, ig, &newvec) )
         PetscCLEAR(self.obj); self.vec = newvec
         return self
 
@@ -190,18 +192,21 @@ cdef class Vec(Object):
         cdef PetscInt na=0
         cdef PetscScalar *sa=NULL
         array = oarray_s(array, &na, &sa)
-        cdef PetscInt b = 1 if bsize is None else bsize
-        if size is None: size = ((na-ng*b), PETSC_DECIDE)
+        cdef PetscInt b = 1 if bsize is None else asInt(bsize)
+        if size is None: size = (toInt(na-ng*b), PETSC_DECIDE)
         cdef PetscInt bs=0, n=0, N=0
         CHKERR( Vec_SplitSizes(ccomm, size, bsize, &bs, &n, &N) )
         if na < (n+ng*b): raise ValueError(
             "ghosts size %d, array size %d, and "
-            "vector local size %d block size %d" %(ng, na, n, b))
+            "vector local size %d block size %d" %
+            (toInt(ng), toInt(na), toInt(n), toInt(b)))
         cdef PetscVec newvec = NULL
         if bs == PETSC_DECIDE:
-            CHKERR( VecCreateGhostWithArray(ccomm,n,N,ng,ig,sa,&newvec) )
+            CHKERR( VecCreateGhostWithArray(
+                    ccomm, n, N, ng, ig, sa, &newvec) )
         else:
-            CHKERR( VecCreateGhostBlockWithArray(ccomm,bs,n,N,ng,ig,sa,&newvec) )
+            CHKERR( VecCreateGhostBlockWithArray(
+                    ccomm, bs, n, N, ng, ig, sa, &newvec) )
         PetscCLEAR(self.obj); self.vec = newvec
         Object_setAttr(<PetscObject>self.vec, '__array__', array)
         return self
@@ -221,7 +226,7 @@ cdef class Vec(Object):
         CHKERR( VecSetOptionsPrefix(self.vec, str2cp(prefix)) )
 
     def getOptionsPrefix(self):
-        cdef const_char_p prefix = NULL
+        cdef const_char *prefix = NULL
         CHKERR( VecGetOptionsPrefix(self.vec, &prefix) )
         return cp2str(prefix)
 
@@ -241,34 +246,34 @@ cdef class Vec(Object):
         return cp2str(vec_type)
 
     def getSize(self):
-        cdef PetscInt N=0
+        cdef PetscInt N = 0
         CHKERR( VecGetSize(self.vec, &N) )
-        return N
+        return toInt(N)
 
     def getLocalSize(self):
-        cdef PetscInt n=0
+        cdef PetscInt n = 0
         CHKERR( VecGetLocalSize(self.vec, &n) )
-        return n
+        return toInt(n)
 
     def getSizes(self):
-        cdef PetscInt n=0, N=0
+        cdef PetscInt n = 0, N = 0
         CHKERR( VecGetLocalSize(self.vec, &n) )
         CHKERR( VecGetSize(self.vec, &N) )
-        return (n, N)
+        return (toInt(n), toInt(N))
 
     def setBlockSize(self, bsize):
-        cdef PetscInt bs = bsize
+        cdef PetscInt bs = asInt(bsize)
         CHKERR( VecSetBlockSize(self.vec, bs) )
 
     def getBlockSize(self):
         cdef PetscInt bs=0
         CHKERR( VecGetBlockSize(self.vec, &bs) )
-        return bs
+        return toInt(bs)
 
     def getOwnershipRange(self):
         cdef PetscInt low=0, high=0
         CHKERR( VecGetOwnershipRange(self.vec, &low, &high) )
-        return (low, high)
+        return (toInt(low), toInt(high))
 
     def getOwnershipRanges(self):
         cdef const_PetscInt *rng = NULL
@@ -298,7 +303,8 @@ cdef class Vec(Object):
         CHKERR( VecGetLocalSize(self.vec, &nv) )
         array = oarray_s(array, &na, &a)
         if (na != nv): raise ValueError(
-            "cannot place input array, invalid size")
+            "cannot place input array size %d, vector size %d" %
+            (toInt(na), toInt(nv)))
         CHKERR( VecPlaceArray(self.vec, a) )
         Object_setAttr(<PetscObject>self.vec, '__placed_array__', array)
 
@@ -329,11 +335,8 @@ cdef class Vec(Object):
         CHKERR( VecEqual(self.vec, vec.vec, &flag) )
         return <bint> flag
 
-    def load(self, Viewer viewer not None, vec_type=None):
-        if self.vec !=  NULL:
-            CHKERR( VecLoadIntoVector(viewer.vwr, self.vec) )
-        else:
-            CHKERR( VecLoad(viewer.vwr, str2cp(vec_type), &self.vec) )
+    def load(self, Viewer viewer not None):
+        CHKERR( VecLoad(viewer.vwr, self.vec) )
         return self
 
     def dot(self, Vec vec not None):
@@ -415,13 +418,13 @@ cdef class Vec(Object):
         cdef PetscInt  ival = 0
         cdef PetscReal rval = 0
         CHKERR( VecMin(self.vec, &ival, &rval) )
-        return (ival, toReal(rval))
+        return (toInt(ival), toReal(rval))
 
     def max(self):
         cdef PetscInt  ival = 0
         cdef PetscReal rval = 0
         CHKERR( VecMax(self.vec, &ival, &rval) )
-        return (ival, toReal(rval))
+        return (toInt(ival), toReal(rval))
 
     def normalize(self):
         cdef PetscReal rval = 0
@@ -437,8 +440,8 @@ cdef class Vec(Object):
     def log(self):
         CHKERR( VecLog(self.vec) )
 
-    def sqrt(self):
-        CHKERR( VecSqrt(self.vec) )
+    def sqrtabs(self):
+        CHKERR( VecSqrtAbs(self.vec) )
 
     def abs(self):
         CHKERR( VecAbs(self.vec) )
@@ -499,8 +502,8 @@ cdef class Vec(Object):
         cdef object tmp1 = allocate(n*sizeof(PetscScalar),<void**>&a)
         cdef object tmp2 = allocate(n*sizeof(PetscVec),<void**>&v)
         for i from 0 <= i < n:
-            a[i] = asScalar(alphas[i])
-            v[i] = (<Vec?>(vecs[i])).vec
+            a[i] = asScalar(alphas[<Py_ssize_t>i])
+            v[i] = (<Vec?>(vecs[<Py_ssize_t>i])).vec
         CHKERR( VecMAXPY(self.vec, n, a, v) )
 
     def pointwiseMult(self, Vec x not None, Vec y not None):
@@ -524,7 +527,7 @@ cdef class Vec(Object):
         return toReal(rval)
 
     def getValue(self, index):
-        cdef PetscInt    ival = index
+        cdef PetscInt    ival = asInt(index)
         cdef PetscScalar sval = 0
         CHKERR( VecGetValues(self.vec, 1, &ival, &sval) )
         return toScalar(sval)
@@ -533,7 +536,7 @@ cdef class Vec(Object):
         return vecgetvalues(self.vec, indices, values)
 
     def setValue(self, index, value, addv=None):
-        cdef PetscInt ival = index
+        cdef PetscInt    ival = asInt(index)
         cdef PetscScalar sval = asScalar(value)
         cdef PetscInsertMode caddv = insertmode(addv)
         CHKERR( VecSetValues(self.vec, 1, &ival, &sval, caddv) )
@@ -548,7 +551,7 @@ cdef class Vec(Object):
         CHKERR( VecSetLocalToGlobalMapping(self.vec, lgmap.lgm) )
 
     def setValueLocal(self, index, value, addv=None):
-        cdef PetscInt ival = index
+        cdef PetscInt    ival = asInt(index)
         cdef PetscScalar sval = asScalar(value)
         cdef PetscInsertMode caddv = insertmode(addv)
         CHKERR( VecSetValuesLocal(self.vec, 1, &ival, &sval, caddv) )
@@ -575,26 +578,26 @@ cdef class Vec(Object):
     # --- methods for strided vectors ---
 
     def strideScale(self, field, alpha):
-        cdef PetscInt    ival = field
+        cdef PetscInt    ival = asInt(field)
         cdef PetscScalar sval = asScalar(alpha)
         CHKERR( VecStrideScale(self.vec, ival, sval) )
 
     def strideMin(self, field):
-        cdef PetscInt  ival1 = field
+        cdef PetscInt  ival1 = asInt(field)
         cdef PetscInt  ival2 = 0
         cdef PetscReal rval  = 0
         CHKERR( VecStrideMin(self.vec, ival1, &ival2, &rval) )
-        return (ival2, toReal(rval))
+        return (toInt(ival2), toReal(rval))
 
     def strideMax(self, field):
-        cdef PetscInt  ival1 = field
+        cdef PetscInt  ival1 = asInt(field)
         cdef PetscInt  ival2 = 0
         cdef PetscReal rval  = 0
         CHKERR( VecStrideMax(self.vec, ival1, &ival2, &rval) )
-        return (ival2, toReal(rval))
+        return (toInt(ival2), toReal(rval))
 
     def strideNorm(self, field, norm_type=None):
-        cdef PetscInt ival = field
+        cdef PetscInt ival = asInt(field)
         cdef PetscNormType norm_1_2 = PETSC_NORM_1_AND_2
         cdef PetscNormType ntype = PETSC_NORM_2
         if norm_type is not None: ntype = norm_type
@@ -604,14 +607,14 @@ cdef class Vec(Object):
         else: return (toReal(rval[0]), toReal(rval[1]))
 
     def strideScatter(self, field, Vec vec not None, addv=None):
-        cdef PetscInt ival = field
+        cdef PetscInt ival = asInt(field)
         cdef PetscInsertMode caddv = insertmode(addv)
         CHKERR( VecStrideScatter(self.vec, ival, vec.vec, caddv) )
 
     def strideGather(self, field, Vec vec not None, addv=None):
-        cdef PetscInt ival = field
+        cdef PetscInt ival = asInt(field)
         cdef PetscInsertMode caddv = insertmode(addv)
-        CHKERR( VecStrideGather(self.vec, field, vec.vec, caddv) )
+        CHKERR( VecStrideGather(self.vec, ival, vec.vec, caddv) )
 
     # --- methods for vectors with ghost values ---
 

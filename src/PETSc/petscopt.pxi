@@ -20,8 +20,6 @@ cdef extern from "petsc.h" nogil:
     int PetscOptionsGetScalar(char[],char[],PetscScalar*,PetscTruth*)
     int PetscOptionsGetString(char[],char[],char[],size_t,PetscTruth*)
 
-    int PetscStrfree(char*)
-
     ctypedef struct _p_PetscToken
     ctypedef _p_PetscToken* PetscToken
     int PetscTokenCreate(char[],char,PetscToken*)
@@ -66,7 +64,7 @@ cdef getopt_Int(char *pre, char *name, object deft):
     cdef PetscInt value = 0
     cdef PetscTruth flag = PETSC_FALSE
     CHKERR( PetscOptionsGetInt(pre, name, &value, &flag) )
-    if flag==PETSC_TRUE: return value
+    if flag==PETSC_TRUE: return toInt(value)
     if deft is not None: return deft
     raise KeyError(opt2str(pre, name))
 

@@ -158,8 +158,8 @@ class BaseTestMatAnyAIJ(object):
         rank = self.A.getComm().getRank()
         rs, re = self.A.getOwnershipRange()
         cs, ce = self.A.getOwnershipRangeColumn()
-        rows = N.arange(rs, re, dtype=PETSc.IntType)
-        cols = N.arange(cs, ce, dtype=PETSc.IntType)
+        rows = N.array(range(rs, re), dtype=PETSc.IntType)
+        cols = N.array(range(cs, ce), dtype=PETSc.IntType)
         rows = PETSc.IS().createGeneral(rows, comm=self.A.getComm())
         cols = PETSc.IS().createGeneral(cols, comm=self.A.getComm())
         #
@@ -237,12 +237,6 @@ class BaseTestMatAnyAIJ(object):
         if None not in (ai, aj):
             self.assertTrue(N.all(i==ai))
             self.assertTrue(N.all(j==aj))
-        return # XXX review
-        version, patch = PETSc.Sys.getVersion(patch=True)
-        #if version >= (2,3,3): #and patch >= 13:
-        ai, aj = A.getRowIJ(compressed=False)
-        print ai, aj
-
 
 # -- AIJ ---------------------
 
@@ -506,9 +500,6 @@ class TestMatMPIAIJ_B_G89_B5(TestMatMPIAIJ_B_G89):
     BSIZE = 5
 
 # -----
-
-if PETSc.Sys.getVersion() < (3,0,0):
-    del BaseTestMatAnyAIJ.testCreateTranspose
 
 if PETSc.Sys.getVersion() >= (3,1,0):
     # -- CRL ---------------------

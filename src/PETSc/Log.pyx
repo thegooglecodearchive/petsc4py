@@ -31,7 +31,7 @@ cdef class Log:
     @classmethod
     def Event(cls, name, klass=None):
         cdef char *cname = str2cp(name)
-        cdef PetscLogClass classid = PETSC_OBJECT_COOKIE
+        cdef PetscLogClass classid = PETSC_OBJECT_CLASSID
         cdef PetscLogEvent eventid = -1
         if not name: raise ValueError("empty name")
         if klass is not None: classid = klass
@@ -101,7 +101,7 @@ cdef class LogStage:
     #
 
     def getName(self):
-        cdef const_char_p name = NULL
+        cdef const_char *name = NULL
         CHKERR( PetscLogStageFindName(self.id, &name) )
         return cp2str(name)
 
@@ -172,7 +172,7 @@ cdef class LogClass:
     cdef readonly PetscLogClass id
 
     def __cinit__(self):
-        self.id = PETSC_OBJECT_COOKIE
+        self.id = PETSC_OBJECT_CLASSID
 
     def __int__(self):
         return <int> self.id
@@ -180,7 +180,7 @@ cdef class LogClass:
     #
 
     def getName(self):
-        cdef const_char_p name = NULL
+        cdef const_char *name = NULL
         CHKERR( PetscLogClassFindName(self.id, &name) )
         return cp2str(name)
 
@@ -271,7 +271,7 @@ cdef class LogEvent:
     #
 
     def getName(self):
-        cdef const_char_p name = NULL
+        cdef const_char *name = NULL
         CHKERR( PetscLogEventFindName(self.id, &name) )
         return cp2str(name)
 
