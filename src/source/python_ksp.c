@@ -1,6 +1,6 @@
 /* -------------------------------------------------------------------------- */
 
-#include "src/inline/python.h"
+#include "python_core.h"
 #include "private/kspimpl.h"
 
 /* -------------------------------------------------------------------------- */
@@ -57,9 +57,9 @@ typedef struct {
   KSP_PYTHON_CALL_TAIL(ksp, PyMethod)                     \
 /**/
 
-#define KSP_PYTHON_SETERRSUP(ksp, PyMethod)                       \
-  SETERRQ1(PETSC_ERR_SUP,"method %s() not implemented",PyMethod); \
-  PetscFunctionReturn(PETSC_ERR_SUP)                              \
+#define KSP_PYTHON_SETERRSUP(ksp, PyMethod)   \
+  PETSC_PYTHON_NOTIMPLEMENTED(ksp, PyMethod); \
+  PetscFunctionReturn(PETSC_ERR_SUP)          \
 /**/
 
 /* -------------------------------------------------------------------------- */
@@ -92,7 +92,7 @@ static PetscErrorCode KSPDestroy_Python(KSP ksp)
     KSP_PYTHON_CALL_NOARGS(ksp, "destroy");
     py->self = NULL; Py_DecRef(self);
   }
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = KSPDefaultDestroy(ksp);CHKERRQ(ierr);
   ksp->data = PETSC_NULL;
   ierr = PetscObjectComposeFunction((PetscObject)ksp,"KSPPythonSetType_C",
@@ -129,8 +129,8 @@ static PetscErrorCode KSPView_Python(KSP ksp,PetscViewer viewer)
   PetscTruth     isascii,isstring;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_ASCII,&isascii);CHKERRQ(ierr);
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_STRING,&isstring);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&isascii);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERSTRING,&isstring);CHKERRQ(ierr);
   if (isascii) {
     const char* pyname  = py->pyname ? py->pyname  : "no yet set";
     ierr = PetscViewerASCIIPrintf(viewer,"  Python: %s\n",pyname);CHKERRQ(ierr);
@@ -153,9 +153,10 @@ static PetscErrorCode KSPSetUp_Python(KSP ksp)
   KSP_Py *py = (KSP_Py*)ksp->data;
   PetscFunctionBegin;
   if (!py->self) {
-    SETERRQ(PETSC_ERR_ARG_WRONGSTATE,"Python context not set, call one of \n"
-            " * KSPPythonSetType(ksp,\"[package.]module.class\")\n"
-            " * KSPSetFromOptions(ksp) and pass option -ksp_python_type [package.]module.class");
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE,
+             "Python context not set, call one of \n"
+             " * KSPPythonSetType(ksp,\"[package.]module.class\")\n"
+             " * KSPSetFromOptions(ksp) and pass option -ksp_python_type [package.]module.class");
   }
   KSP_PYTHON_CALL_KSPARG(ksp, "setUp");
   PetscFunctionReturn(0);
@@ -250,7 +251,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT KSPCreate_Python(KSP ksp)
   PetscErrorCode ierr;
   PetscFunctionBegin;
 
-  ierr = Petsc4PyInitialize();CHKERRQ(ierr);
+  ierr = PetscPythonImportPetsc4Py();CHKERRQ(ierr);
 
   ierr = PetscNew(KSP_Py,&py);CHKERRQ(ierr);
   ierr = PetscLogObjectMemory(ksp,sizeof(KSP_Py));CHKERRQ(ierr);
@@ -305,7 +306,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT KSPPythonGetContext(KSP ksp,void **ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(ksp,KSP_COOKIE,1);
+  PetscValidHeaderSpecific(ksp,KSP_CLASSID,1);
   PetscValidPointer(ctx,2);
   *ctx = NULL;
   ierr = PetscTypeCompare((PetscObject)ksp,KSPPYTHON,&ispython);CHKERRQ(ierr);
@@ -339,7 +340,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT KSPPythonSetContext(KSP ksp,void *ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(ksp,KSP_COOKIE,1);
+  PetscValidHeaderSpecific(ksp,KSP_CLASSID,1);
   if (ctx) PetscValidPointer(ctx,2);
   ierr = PetscTypeCompare((PetscObject)ksp,KSPPYTHON,&ispython);CHKERRQ(ierr);
   if (!ispython) PetscFunctionReturn(0);
@@ -352,16 +353,22 @@ PetscErrorCode PETSCKSP_DLLEXPORT KSPPythonSetContext(KSP ksp,void *ctx)
   old = py->self; py->self = NULL; Py_DecRef(old);
   /* set current Python context in the KSP object  */
   py->self = (PyObject *) self; Py_IncRef(py->self);
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscPythonGetFullName(py->self,&py->pyname);CHKERRQ(ierr);
   KSP_PYTHON_CALL_KSPARG(ksp, "create");
-  if (ksp->setupcalled) ksp->setupcalled = 0;
+
+#if (PETSC_VERSION_(3,1,0) || \
+     PETSC_VERSION_(3,0,0))
+  ksp->setupcalled = 0;
+#else
+  ksp->setupstage = KSP_SETUP_NEW;
+#endif
   PetscFunctionReturn(0);
 }
 
 /* -------------------------------------------------------------------------- */
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
+#if 0
 
 PETSC_EXTERN_CXX_BEGIN
 EXTERN PetscErrorCode PETSCKSP_DLLEXPORT KSPPythonSetType(KSP,const char[]);
@@ -393,7 +400,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT KSPPythonSetType(KSP ksp,const char pyname[])
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(ksp,KSP_COOKIE,1);
+  PetscValidHeaderSpecific(ksp,KSP_CLASSID,1);
   PetscValidCharPointer(pyname,2);
   ierr = PetscObjectQueryFunction((PetscObject)ksp,"KSPPythonSetType_C",(PetscVoidFunction*)&f);CHKERRQ(ierr);
   if (f) {ierr = (*f)(ksp,pyname);CHKERRQ(ierr);}

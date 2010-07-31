@@ -87,8 +87,8 @@ cdef extern from "petscksp.h" nogil:
     int KSPGetTolerances(PetscKSP,PetscReal*,PetscReal*,PetscReal*,PetscInt*)
     int KSPSetNormType(PetscKSP,PetscKSPNormType)
     int KSPGetNormType(PetscKSP,PetscKSPNormType*)
-    int KSPSetPreconditionerSide(PetscKSP,PetscPCSide)
-    int KSPGetPreconditionerSide(PetscKSP,PetscPCSide*)
+    int KSPSetPCSide(PetscKSP,PetscPCSide)
+    int KSPGetPCSide(PetscKSP,PetscPCSide*)
 
     int KSPSetConvergenceTest(PetscKSP,PetscKSPConvergedFunction,void*,PetscKSPCtxDel)
     int KSPSetResidualHistory(PetscKSP,PetscReal[],PetscInt,PetscTruth)
@@ -197,7 +197,7 @@ cdef int KSP_Converged(PetscKSP  ksp,
                         void* ctx) except PETSC_ERR_PYTHON with gil:
     cdef KSP Ksp = ref_KSP(ksp)
     (converged, args, kargs) = KSP_getConverged(ksp)
-    reason = converged(Ksp, its, toReal(rn), *args, **kargs)
+    reason = converged(Ksp, toInt(its), toReal(rn), *args, **kargs)
     if   reason is None:  r[0] = KSP_CONVERGED_ITERATING
     elif reason is False: r[0] = KSP_CONVERGED_ITERATING
     elif reason is True:  r[0] = KSP_CONVERGED_ITS # XXX ?
@@ -230,7 +230,7 @@ cdef int KSP_Monitor(PetscKSP  ksp,
     if monitorlist is None: return 0
     cdef KSP Ksp = ref_KSP(ksp)
     for (monitor, args, kargs) in monitorlist:
-        monitor(Ksp, its, toReal(rnorm), *args, **kargs)
+        monitor(Ksp, toInt(its), toReal(rnorm), *args, **kargs)
     return 0
 
 # -----------------------------------------------------------------------------
