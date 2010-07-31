@@ -1,5 +1,5 @@
-#ifndef _PETSC_PYTHON_H
-#define _PETSC_PYTHON_H
+#ifndef _PETSC_PYTHON_CORE_H
+#define _PETSC_PYTHON_CORE_H
 
 /* -------------------------------------------------------------------------- */
 
@@ -7,23 +7,51 @@
 
 /* -------------------------------------------------------------------------- */
 
-#if !defined(PETSC_USE_ERRORCHECKING)
-#undef  SETERRQ
-#define SETERRQ(n,s)                     return(n)
-#undef  SETERRQ1
-#define SETERRQ1(n,s,a1)                 return(n)
-#undef  SETERRQ2
-#define SETERRQ2(n,s,a1,a2)              return(n)
-#undef  SETERRQ3
-#define SETERRQ3(n,s,a1,a2,a3)           return(n)
-#undef  SETERRQ4
-#define SETERRQ4(n,s,a1,a2,a3,a4)        return(n)
-#undef  SETERRQ5
-#define SETERRQ5(n,s,a1,a2,a3,a4,a5)     return(n)
-#undef  SETERRQ6
-#define SETERRQ6(n,s,a1,a2,a3,a4,a5,a6)  return(n)
-#undef  CHKERRQ
-#define CHKERRQ(n)                       if(n)return(n)
+#if PY_MAJOR_VERSION >= 3
+#define PyInt_Check  PyLong_Check
+#define PyInt_AsLong PyLong_AsLong
+#endif
+
+#if PY_MAJOR_VERSION < 3
+#define PyBytes_Check    PyString_Check
+#define PyBytes_AsString PyString_AsString
+#endif
+
+/* -------------------------------------------------------------------------- */
+
+#if (PETSC_VERSION_(3,1,0) || \
+     PETSC_VERSION_(3,0,0))
+#define PETSCVIEWERASCII  PETSC_VIEWER_ASCII
+#define PETSCVIEWERSTRING PETSC_VIEWER_STRING
+#endif
+
+#define SETERRQQ(comm,n,s) \
+  return PetscError(comm,__LINE__,__FUNCT__,__FILE__,__SDIR__,\
+                    n,PETSC_ERROR_INITIAL,s)
+#define SETERRQQ1(comm,n,s,a1) \
+  return PetscError(comm,__LINE__,__FUNCT__,__FILE__,__SDIR__,\
+                    n,PETSC_ERROR_INITIAL,s,a1)
+#define SETERRQQ2(comm,n,s,a1,a2) \
+  return PetscError(comm,__LINE__,__FUNCT__,__FILE__,__SDIR__,\
+                    n,PETSC_ERROR_INITIAL,s,a1,a2)
+#define SETERRQQ3(comm,n,s,a1,a2,a3) \
+  return PetscError(comm,__LINE__,__FUNCT__,__FILE__,__SDIR__,\
+                    n,PETSC_ERROR_INITIAL,s,a1,a2,a3)
+
+#if (PETSC_VERSION_(3,1,0) || \
+     PETSC_VERSION_(3,0,0))
+#undef SETERRQQ
+#define SETERRQQ(comm,n,s) \
+  return PetscError(__LINE__,__FUNCT__,__FILE__,__SDIR__,n,1,s)
+#undef SETERRQQ1
+#define SETERRQQ1(comm,n,s,a1) \
+  return PetscError(__LINE__,__FUNCT__,__FILE__,__SDIR__,n,1,s,a1)
+#undef SETERRQQ2
+#define SETERRQQ2(comm,n,s,a1,a2) \
+  return PetscError(__LINE__,__FUNCT__,__FILE__,__SDIR__,n,1,s,a1,a2)
+#undef SETERRQQ3
+#define SETERRQQ3(comm,n,s,a1,a2,a3) \
+  return PetscError(__LINE__,__FUNCT__,__FILE__,__SDIR__,n,1,s,a1,a2,a3)
 #endif
 
 #ifndef PETSC_ERR_PYTHON
@@ -93,25 +121,6 @@ static const char * PetscPythonHandleError(void)
 
 /* -------------------------------------------------------------------------- */
 
-#undef __FUNCT__
-#define __FUNCT__ "Petsc4PyInitialize"
-static PetscErrorCode Petsc4PyInitialize(void)
-{
-  static PetscTruth initialized = PETSC_FALSE;
-  PetscErrorCode ierr;
-  PetscFunctionBegin;
-  if (initialized) PetscFunctionReturn(0);
-  if (import_petsc4py() < 0) goto fail;
-  initialized = PETSC_TRUE;
-  PetscFunctionReturn(0);
- fail:
-  PetscPythonHandleError();
-  SETERRQ(PETSC_ERR_PYTHON,"could not import Python package 'petsc4py.PETSc'");
-  PetscFunctionReturn(ierr);
-}
-
-/* -------------------------------------------------------------------------- */
-
 #define PETSC_PYTHON_CALL_HEAD(PySelf, PyMethod)                        \
 do {                                                                    \
   PyObject   *_self = PySelf;                                           \
@@ -120,7 +129,7 @@ do {                                                                    \
   PyObject   *_args = NULL;                                             \
   PyObject   *_retv = NULL;                                             \
   if (!Py_IsInitialized()) {                                            \
-    SETERRQ(PETSC_ERR_LIB,"Python is not initialized");                 \
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_LIB,"Python is not initialized");\
     PetscFunctionReturn(PETSC_ERR_PYTHON);                              \
   }                                                                     \
   do {                                                                  \
@@ -136,10 +145,10 @@ do {                                                                    \
   do { if (_call == NULL) goto LABEL; } while(0)                        \
 /**/
 
-#define PETSC_PYTHON_CALL_BODY(Py_BV_ARGS)                              \
+#define PETSC_PYTHON_CALL_BODY(Py_BV_ARG_LIST)                          \
   if (_call != NULL) {                                                  \
     do {                                                                \
-      _args = PetscPyBuildValue Py_BV_ARGS;                             \
+      _args = PetscPyBuildValue Py_BV_ARG_LIST;                         \
       if (_args != NULL) {                                              \
         if (_args == Py_None)                                           \
           _retv = PyObject_CallObject(_call, NULL);                     \
@@ -156,8 +165,8 @@ do {                                                                    \
 #define PETSC_PYTHON_CALL_TAIL()                                        \
     if (_retv == NULL) {                                                \
       const char *_exc = PetscPythonHandleError();                      \
-      SETERRQ2(PETSC_ERR_PYTHON,"calling Python, "                      \
-               "method %s(), exception '%s'", _meth, _exc);             \
+      SETERRQQ2(PETSC_COMM_SELF,PETSC_ERR_PYTHON,"calling Python, "     \
+                "method %s(), exception '%s'", _meth, _exc);            \
       PetscFunctionReturn(PETSC_ERR_PYTHON);                            \
     } else {                                                            \
       Py_DecRef(_retv);                                                 \
@@ -166,7 +175,31 @@ do {                                                                    \
 } while(0)                                                              \
 /**/
 
+#define PETSC_PYTHON_NOTIMPLEMENTED(obj,PyMethod)                       \
+  SETERRQQ1(PETSC_COMM_SELF,PETSC_ERR_SUP,                              \
+            "method %s() not implemented",PyMethod);                    \
+/**/
+
 /* -------------------------------------------------------------------------- */
+
+#undef __FUNCT__
+#define __FUNCT__ "PetscPythonImportPetsc4Py"
+static PetscErrorCode PetscPythonImportPetsc4Py(void)
+{
+  static PetscTruth initialized = PETSC_FALSE;
+  PetscErrorCode ierr;
+  PetscFunctionBegin;
+  if (initialized) PetscFunctionReturn(0);
+  if (import_petsc4py() < 0) goto fail;
+  initialized = PETSC_TRUE;
+  PetscFunctionReturn(0);
+ fail:
+  PetscPythonHandleError();
+  SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_PYTHON,
+           "could not import Python package 'petsc4py.PETSc'");
+  PetscFunctionReturn(ierr);
+}
+
 
 #undef __FUNCT__
 #define __FUNCT__ "PetscCreatePythonObject"
@@ -188,8 +221,8 @@ static PetscErrorCode PetscCreatePythonObject(const char fullname[],
   self = mod = PetscPyImportModule(modname);
   if (mod == NULL) {
     const char *excname = PetscPythonHandleError();
-    SETERRQ2(PETSC_ERR_PYTHON,"Python: error importing "
-             "module '%s', exception '%s'",modname,excname);
+    SETERRQQ2(PETSC_COMM_SELF,PETSC_ERR_PYTHON,"Python: error importing "
+              "module '%s', exception '%s'",modname,excname);
     PetscFunctionReturn(PETSC_ERR_PYTHON);
   }
   if (!clsname) goto done;
@@ -198,9 +231,9 @@ static PetscErrorCode PetscCreatePythonObject(const char fullname[],
   Py_DecRef(mod);
   if (cls == NULL) {
     const char *excname = PetscPythonHandleError();
-    SETERRQ3(PETSC_ERR_PYTHON,"Python: error getting "
-             "function/class '%s' from module '%s', exception '%s'",
-             clsname,modname,excname);
+    SETERRQQ3(PETSC_COMM_SELF,PETSC_ERR_PYTHON,"Python: error getting "
+              "function/class '%s' from module '%s', exception '%s'",
+              clsname,modname,excname);
     PetscFunctionReturn(PETSC_ERR_PYTHON);
   }
   if (!PyCallable_Check(cls)) goto done;
@@ -209,25 +242,27 @@ static PetscErrorCode PetscCreatePythonObject(const char fullname[],
   Py_DecRef(cls);
   if (inst == NULL) {
     const char *excname = PetscPythonHandleError();
-    SETERRQ3(PETSC_ERR_PYTHON,"Python: error calling "
-             "function/class '%s' from module '%s', exception '%s'",
-             clsname,modname,excname);
+    SETERRQQ3(PETSC_COMM_SELF,PETSC_ERR_PYTHON,"Python: error calling "
+              "function/class '%s' from module '%s', exception '%s'",
+              clsname,modname,excname);
     PetscFunctionReturn(PETSC_ERR_PYTHON);
   }
  done:
   *outself = self;
   PetscFunctionReturn(0);
 }
-static PetscErrorCode PetscCreatePythonObject_GIL(const char fullname[],
-                                                  PyObject **outself)
+
+static PyObject *PetscPythonAsString(PyObject *ob, const char* buf[])
 {
-  PetscErrorCode ierr;
-  PyGILState_STATE _save = PyGILState_Ensure();
-  ierr = PetscCreatePythonObject(fullname, outself);
-  PyGILState_Release(_save);
-  return ierr;
+  if (ob && PyUnicode_Check(ob)) {
+    PyObject *tmp = PyUnicode_AsASCIIString(ob);
+    Py_DecRef(ob);
+    ob = tmp;
+  }
+  if (ob && PyBytes_Check(ob))
+    *buf = PyBytes_AsString(ob);
+  return ob;
 }
-#define PetscCreatePythonObject PetscCreatePythonObject_GIL
 
 #undef __FUNCT__
 #define __FUNCT__ "PetscPythonGetFullName"
@@ -245,21 +280,18 @@ static PetscErrorCode PetscPythonGetFullName(PyObject *self, char *pyname[])
   /* --- */
   if (PyModule_Check(self)) {
     omodname = PetscPyObjectGetAttrStr(self,"__name__");
+    omodname = PetscPythonAsString(omodname, &ModName);
     if (!omodname) PyErr_Clear();
-    else if (PyString_Check(omodname))
-      ModName = PyString_AsString(omodname);
   } else {
     cls = PetscPyObjectGetAttrStr(self,"__class__");
     if (!cls) PyErr_Clear();
     else {
       omodname = PetscPyObjectGetAttrStr(cls,"__module__");
+      omodname = PetscPythonAsString(omodname, &ModName);
       if (!omodname) PyErr_Clear();
-      else if (PyString_Check(omodname))
-        ModName = PyString_AsString(omodname);
       oclsname = PetscPyObjectGetAttrStr(cls,"__name__");
+      oclsname = PetscPythonAsString(oclsname, &ClsName);
       if (!oclsname) PyErr_Clear();
-      else if (PyString_Check(oclsname))
-        ClsName = PyString_AsString(oclsname);
     }
   }
   /* --- */
@@ -285,6 +317,17 @@ static PetscErrorCode PetscPythonGetFullName(PyObject *self, char *pyname[])
   if (oclsname) Py_DecRef(oclsname);
   PetscFunctionReturn(0);
 }
+
+static PetscErrorCode PetscCreatePythonObject_GIL(const char fullname[],
+                                                  PyObject **outself)
+{
+  PetscErrorCode ierr;
+  PyGILState_STATE _save = PyGILState_Ensure();
+  ierr = PetscCreatePythonObject(fullname, outself);
+  PyGILState_Release(_save);
+  return ierr;
+}
+#define PetscCreatePythonObject PetscCreatePythonObject_GIL
 static PetscErrorCode PetscPythonGetFullName_GIL(PyObject *self, char *pyname[])
 {
   PetscErrorCode ierr;
