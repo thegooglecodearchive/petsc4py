@@ -69,19 +69,21 @@ cdef class Object:
         return self
 
     def getType(self):
-        cdef const_char_p tname = NULL
-        CHKERR( PetscObjectGetType(self.obj[0], &tname) )
-        return cp2str(tname)
+        cdef const_char *cval = NULL
+        CHKERR( PetscObjectGetType(self.obj[0], &cval) )
+        return bytes2str(cval)
 
     #
 
     def setOptionsPrefix(self, prefix):
-        CHKERR( PetscObjectSetOptionsPrefix(self.obj[0], str2cp(prefix)) )
+        cdef const_char *cval = NULL
+        prefix = str2bytes(prefix, &cval)
+        CHKERR( PetscObjectSetOptionsPrefix(self.obj[0], cval) )
 
     def getOptionsPrefix(self):
-        cdef const_char_p prefix = NULL
-        CHKERR( PetscObjectGetOptionsPrefix(self.obj[0], &prefix) )
-        return cp2str(prefix)
+        cdef const_char *cval = NULL
+        CHKERR( PetscObjectGetOptionsPrefix(self.obj[0], &cval) )
+        return bytes2str(cval)
 
     def setFromOptions(self):
         CHKERR( PetscObjectSetFromOptions(self.obj[0]) )
@@ -94,46 +96,51 @@ cdef class Object:
         return comm
 
     def getName(self):
-        cdef const_char_p name = NULL
-        CHKERR( PetscObjectGetName(self.obj[0], &name) )
-        return cp2str(name)
+        cdef const_char *cval = NULL
+        CHKERR( PetscObjectGetName(self.obj[0], &cval) )
+        return bytes2str(cval)
 
     def setName(self, name):
-        CHKERR( PetscObjectSetName(self.obj[0], str2cp(name)) )
+        cdef const_char *cval = NULL
+        name = str2bytes(name, &cval)
+        CHKERR( PetscObjectSetName(self.obj[0], cval) )
 
-    def getCookie(self):
-        cdef PetscCookie cookie = 0
-        CHKERR( PetscObjectGetCookie(self.obj[0], &cookie) )
-        return cookie
+    def getClassId(self):
+        cdef PetscClassId classid = 0
+        CHKERR( PetscObjectGetClassId(self.obj[0], &classid) )
+        return classid
 
     def getClassName(self):
-        cdef const_char_p cname = NULL
-        CHKERR( PetscObjectGetClassName(self.obj[0], &cname) )
-        return cp2str(cname)
+        cdef const_char *cval = NULL
+        CHKERR( PetscObjectGetClassName(self.obj[0], &cval) )
+        return bytes2str(cval)
 
     def getRefCount(self):
         cdef PetscInt refcnt = 0
         CHKERR( PetscObjectGetReference(self.obj[0], &refcnt) )
-        return refcnt
+        return toInt(refcnt)
 
     # --- general support ---
 
     def compose(self, name, Object obj):
-        cdef char *cname = str2cp(name)
+        cdef const_char *cval = NULL
         cdef PetscObject cobj = NULL
+        name = str2bytes(name, &cval)
         if obj is not None: cobj = obj.obj[0]
-        CHKERR( PetscObjectCompose(self.obj[0], cname, cobj) )
+        CHKERR( PetscObjectCompose(self.obj[0], cval, cobj) )
 
     def query(self, name):
-        cdef char *cname = str2cp(name)
+        cdef const_char *cval = NULL
         cdef PetscObject cobj = NULL
-        CHKERR( PetscObjectQuery(self.obj[0], cname, &cobj) )
+        name = str2bytes(name, &cval)
+        CHKERR( PetscObjectQuery(self.obj[0], cval, &cobj) )
         if cobj == NULL: return None
-        cdef PetscCookie cookie = 0
-        CHKERR( PetscObjectGetCookie(cobj, &cookie) )
-        cdef type Class = TypeRegistryGet(cookie)
+        cdef PetscClassId classid = 0
+        CHKERR( PetscObjectGetClassId(cobj, &classid) )
+        cdef type Class = TypeRegistryGet(classid)
         cdef Object newobj = Class()
-        PetscIncref(cobj); newobj.obj[0] = cobj
+        PetscIncref(cobj)
+        newobj.obj[0] = cobj
         return newobj
 
     def incRef(self):
@@ -143,12 +150,14 @@ cdef class Object:
         return self.dec_ref()
 
     def getAttr(self, name):
-        cdef char *cname = str2cp(name)
-        return self.get_attr(cname)
+        cdef const_char *cval = NULL
+        name = str2bytes(name, &cval)
+        return self.get_attr(<char*>cval)
 
     def setAttr(self, name, attr):
-        cdef char *cname = str2cp(name)
-        self.set_attr(cname, attr)
+        cdef const_char *cval = NULL
+        name = str2bytes(name, &cval)
+        self.set_attr(<char*>cval, attr)
 
     def getDict(self):
         return self.get_dict()
@@ -177,9 +186,9 @@ cdef class Object:
         def __set__(self, value):
             self.setName(value)
 
-    property cookie:
+    property classid:
         def __get__(self):
-            return self.getCookie()
+            return self.getClassId()
 
     property klass:
         def __get__(self):
@@ -203,13 +212,15 @@ include "cyclicgc.pxi"
 cdef dict type_registry = { 0 : None }
 __type_registry__ = type_registry
 
-cdef int TypeRegistryAdd(PetscCookie cookie, type cls) except -1:
+cdef int TypeRegistryAdd(PetscClassId classid, type cls) except -1:
     global type_registry
-    cdef object key = cookie
+    cdef object key = classid
     cdef object value = cls
+    cdef const_char *dummy = NULL
     if key not in type_registry:
         type_registry[key] = cls
-        reg_LogClass(cls.__name__, <PetscLogClass>cookie)
+        reg_LogClass(str2bytes(cls.__name__, &dummy),
+                     <PetscLogClass>classid)
         # TypeEnableGC(<PyTypeObject*>cls) # XXX disabled !!!
     else:
         value = type_registry[key]
@@ -219,9 +230,9 @@ cdef int TypeRegistryAdd(PetscCookie cookie, type cls) except -1:
                 "already registered: %s" % (key, cls, value))
     return 0
 
-cdef type TypeRegistryGet(PetscCookie cookie):
+cdef type TypeRegistryGet(PetscClassId classid):
     global type_registry
-    cdef object key = cookie
+    cdef object key = classid
     cdef type cls = Object
     try:
         cls = type_registry[key]
