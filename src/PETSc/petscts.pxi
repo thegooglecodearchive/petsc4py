@@ -4,9 +4,9 @@ cdef extern from "petscts.h" nogil:
     PetscTSType TSEULER
     PetscTSType TSBEULER
     PetscTSType TSPSEUDO
-    PetscTSType TSCRANK_NICHOLSON
+    PetscTSType TSCN
     PetscTSType TSSUNDIALS
-    PetscTSType TSRUNGE_KUTTA
+    PetscTSType TSRK
     PetscTSType TSTHETA
     PetscTSType TSGL
     PetscTSType TSSSP
@@ -16,6 +16,13 @@ cdef extern from "petscts.h" nogil:
         TS_NONLINEAR
 
     ctypedef int PetscTSCtxDel(void*)
+
+    ctypedef int (*PetscTSMatrixFunction)(PetscTS,
+                                          PetscReal,
+                                          PetscMat*,
+                                          PetscMat*,
+                                          PetscMatStructure*,
+                                          void*) except PETSC_ERR_PYTHON
 
     ctypedef int (*PetscTSFunctionFunction)(PetscTS,
                                             PetscReal,
@@ -73,11 +80,13 @@ cdef extern from "petscts.h" nogil:
     int TSSetSolution(PetscTS,PetscVec)
     int TSGetSolution(PetscTS,PetscVec*)
 
+    int TSSetMatrices(PetscTS,PetscMat,PetscTSMatrixFunction,PetscMat,PetscTSMatrixFunction,PetscMatStructure,void*)
+
     int TSGetRHSFunction(PetscTS,PetscVec*,PetscTSFunctionFunction*,void*)
     int TSGetRHSJacobian(PetscTS,PetscMat*,PetscMat*,PetscTSJacobianFunction*,void**)
     int TSSetRHSFunction(PetscTS,PetscVec,PetscTSFunctionFunction,void*)
     int TSSetRHSJacobian(PetscTS,PetscMat,PetscMat,PetscTSJacobianFunction,void*)
-    int TSSetIFunction(PetscTS,PetscTSIFunctionFunction,void*)
+    int TSSetIFunction(PetscTS,PetscVec,PetscTSIFunctionFunction,void*)
     int TSSetIJacobian(PetscTS,PetscMat,PetscMat,PetscTSIJacobianFunction,void*)
     int TSGetIJacobian(PetscTS,PetscMat*,PetscMat*,PetscTSIJacobianFunction*,void**)
 
@@ -109,6 +118,9 @@ cdef extern from "petscts.h" nogil:
     int TSStep(PetscTS,PetscInt*,PetscReal*)
     int TSSolve(PetscTS,PetscVec)
 
+    int TSThetaSetTheta(PetscTS,PetscReal)
+    int TSThetaGetTheta(PetscTS,PetscReal*)
+
 cdef extern from "custom.h" nogil:
     int TSSetUseFDColoring(PetscTS,PetscTruth)
     int TSGetUseFDColoring(PetscTS,PetscTruth*)
@@ -124,48 +136,109 @@ cdef inline TS ref_TS(PetscTS ts):
 
 # -----------------------------------------------------------------------------
 
-cdef inline object TS_getFunction(PetscTS ts):
-    return Object_getAttr(<PetscObject>ts, '__function__')
+cdef inline object TS_getLHSMatrix(PetscTS ts):
+    return Object_getAttr(<PetscObject>ts, '__lhsmatrix__')
 
-cdef inline int TS_setFunction(PetscTS ts, PetscVec f, object fun) except -1:
-    CHKERR( TSSetRHSFunction(ts, f, TS_Function, NULL) )
-    Object_setAttr(<PetscObject>ts, '__function__', fun)
+cdef inline object TS_getRHSMatrix(PetscTS ts):
+    return Object_getAttr(<PetscObject>ts, '__rhsmatrix__')
+
+cdef inline int TS_setLHSMatrix(PetscTS ts, PetscMat A,
+                                object fun, object args, object kargs) except -1:
+    cdef PetscMatStructure matstr = MAT_DIFFERENT_NONZERO_PATTERN
+    if fun is None:
+        CHKERR( TSSetMatrices(ts, NULL, NULL, A, NULL, matstr, NULL) )
+        Object_setAttr(<PetscObject>ts, '__lhsmatrix__', None)
+    else:
+        CHKERR( TSSetMatrices(ts, NULL, NULL, A, TS_LHSMatrix, matstr, NULL) )
+        Object_setAttr(<PetscObject>ts, '__lhsmatrix__', (fun, args, kargs))
     return 0
 
-cdef int TS_Function(PetscTS ts,
-                     PetscReal t,
-                     PetscVec  x,
-                     PetscVec  f,
-                     void* ctx) except PETSC_ERR_PYTHON with gil:
+cdef inline int TS_setRHSMatrix(PetscTS ts, PetscMat A,
+                                object fun, object args, object kargs) except -1:
+    cdef PetscMatStructure matstr = MAT_DIFFERENT_NONZERO_PATTERN
+    if fun is None:
+        CHKERR( TSSetMatrices(ts, A, NULL, NULL, NULL, matstr, NULL) )
+        Object_setAttr(<PetscObject>ts, '__rhsmatrix__', None)
+    else:
+        CHKERR( TSSetMatrices(ts, A, TS_RHSMatrix, NULL, NULL, matstr,NULL) )
+        Object_setAttr(<PetscObject>ts, '__rhsmatrix__', (fun, args, kargs))
+    return 0
+
+cdef int TS_LHSMatrix(PetscTS ts,
+                      PetscReal t,
+                      PetscMat *A,
+                      PetscMat *B,
+                      PetscMatStructure* s,
+                      void* ctx) except PETSC_ERR_PYTHON with gil:
+    cdef TS   Ts   = ref_TS(ts)
+    cdef Mat  Amat = ref_Mat(A[0])
+    (lhsmatrix, args, kargs) = TS_getLHSMatrix(ts)
+    retv = lhsmatrix(Ts, toReal(t), Amat, *args, **kargs)
+    s[0] = matstructure(retv)
+    cdef PetscMat Atmp = NULL
+    Atmp = A[0]; A[0] = Amat.mat; Amat.mat = Atmp
+    return 0
+
+cdef int TS_RHSMatrix(PetscTS ts,
+                      PetscReal t,
+                      PetscMat *A,
+                      PetscMat *B,
+                      PetscMatStructure* s,
+                      void* ctx) except PETSC_ERR_PYTHON with gil:
+    cdef TS   Ts   = ref_TS(ts)
+    cdef Mat  Amat = ref_Mat(A[0])
+    (rhsmatrix, args, kargs) = TS_getRHSMatrix(ts)
+    retv = rhsmatrix(Ts, toReal(t), Amat, *args, **kargs)
+    s[0] = matstructure(retv)
+    cdef PetscMat Atmp = NULL
+    Atmp = A[0]; A[0] = Amat.mat; Amat.mat = Atmp
+    return 0
+
+# -----------------------------------------------------------------------------
+
+cdef inline object TS_getRHSFunction(PetscTS ts):
+    return Object_getAttr(<PetscObject>ts, '__rhsfunction__')
+
+cdef inline int TS_setRHSFunction(PetscTS ts, 
+                                  PetscVec f, object fun) except -1:
+    CHKERR( TSSetRHSFunction(ts, f, TS_RHSFunction, NULL) )
+    Object_setAttr(<PetscObject>ts, '__rhsfunction__', fun)
+    return 0
+
+cdef int TS_RHSFunction(PetscTS ts,
+                        PetscReal t,
+                        PetscVec  x,
+                        PetscVec  f,
+                        void* ctx) except PETSC_ERR_PYTHON with gil:
     cdef TS  Ts   = ref_TS(ts)
     cdef Vec Xvec = ref_Vec(x)
     cdef Vec Fvec = ref_Vec(f)
-    (function, args, kargs) = TS_getFunction(ts)
+    (function, args, kargs) = TS_getRHSFunction(ts)
     function(Ts, toReal(t), Xvec, Fvec, *args, **kargs)
     return 0
 
-cdef inline object TS_getJacobian(PetscTS ts):
-    return Object_getAttr(<PetscObject>ts, '__jacobian__')
+cdef inline object TS_getRHSJacobian(PetscTS ts):
+    return Object_getAttr(<PetscObject>ts, '__rhsjacobian__')
 
-cdef inline int TS_setJacobian(PetscTS ts,
-                               PetscMat J, PetscMat P,
-                               object jacobian) except -1:
-    CHKERR( TSSetRHSJacobian(ts, J, P, TS_Jacobian, NULL) )
-    Object_setAttr(<PetscObject>ts, '__jacobian__', jacobian)
+cdef inline int TS_setRHSJacobian(PetscTS ts,
+                                  PetscMat J, PetscMat P,
+                                  object jacobian) except -1:
+    CHKERR( TSSetRHSJacobian(ts, J, P, TS_RHSJacobian, NULL) )
+    Object_setAttr(<PetscObject>ts, '__rhsjacobian__', jacobian)
     return 0
 
-cdef int TS_Jacobian(PetscTS ts,
-                     PetscReal t,
-                     PetscVec  x,
-                     PetscMat  *J,
-                     PetscMat  *P,
-                     PetscMatStructure* s,
-                     void* ctx) except PETSC_ERR_PYTHON with gil:
+cdef int TS_RHSJacobian(PetscTS ts,
+                        PetscReal t,
+                        PetscVec  x,
+                        PetscMat  *J,
+                        PetscMat  *P,
+                        PetscMatStructure* s,
+                        void* ctx) except PETSC_ERR_PYTHON with gil:
     cdef TS   Ts   = ref_TS(ts)
     cdef Vec  Xvec = ref_Vec(x)
     cdef Mat  Jmat = ref_Mat(J[0])
     cdef Mat  Pmat = ref_Mat(P[0])
-    (jacobian, args, kargs) = TS_getJacobian(ts)
+    (jacobian, args, kargs) = TS_getRHSJacobian(ts)
     retv = jacobian(Ts, toReal(t), Xvec, Jmat, Pmat, *args, **kargs)
     s[0] = matstructure(retv)
     cdef PetscMat Jtmp = NULL, Ptmp = NULL
@@ -178,8 +251,10 @@ cdef int TS_Jacobian(PetscTS ts,
 cdef inline object TS_getIFunction(PetscTS ts):
     return Object_getAttr(<PetscObject>ts, '__ifunction__')
 
-cdef inline int TS_setIFunction(PetscTS ts, object function) except -1:
-    CHKERR( TSSetIFunction(ts, TS_IFunction, NULL) )
+cdef inline int TS_setIFunction(PetscTS ts, 
+                                PetscVec f,
+                                object function) except -1:
+    CHKERR( TSSetIFunction(ts, f, TS_IFunction, NULL) )
     Object_setAttr(<PetscObject>ts, '__ifunction__', function)
     return 0
 
@@ -260,7 +335,7 @@ cdef int TS_Monitor(PetscTS    ts,
     cdef TS  Ts = ref_TS(ts)
     cdef Vec Vu = ref_Vec(u)
     for (monitor, args, kargs) in monitorlist:
-        monitor(Ts, step, toReal(time), Vu, *args, **kargs)
+        monitor(Ts, toInt(step), toReal(time), Vu, *args, **kargs)
     return 0
 
 # --------------------------------------------------------------------

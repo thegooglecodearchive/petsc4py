@@ -1,43 +1,7 @@
 /*  -------------------------------------------------------------------- */
 
-#include "src/inline/python.h"
+#include "python_core.h"
 #include "private/snesimpl.h"
-
-/*  -------------------------------------------------------------------- */
-
-/* backward compatibility hacks */
-
-#if PETSC_VERSION_(2,3,2)
-#define vec_sol_update vec_sol_update_always
-#define vec_rhs        afine
-#define SNES_KSPSolve(snes,ksp,b,x) KSPSolve(ksp,b,x)
-#define SNES_CONVERGED_ITS   ((SNESConvergedReason)1)
-#define SNESDefaultConverged SNESConverged_LS
-#undef __FUNCT__
-#define __FUNCT__ "SNESSkipConverged"
-static PetscErrorCode SNESSkipConverged(SNES snes,PetscInt it,
-                                        PetscReal xnorm,PetscReal pnorm,PetscReal fnorm,
-                                        SNESConvergedReason *reason,void *dummy)
-{
-  PetscErrorCode ierr;
-  PetscFunctionBegin;
-  PetscValidHeaderSpecific(snes,SNES_COOKIE,1);
-  PetscValidPointer(reason,6);
-  *reason = SNES_CONVERGED_ITERATING;
-  if (fnorm != fnorm) {
-    ierr = PetscInfo(snes,"Failed to converge, function norm is NaN\n");CHKERRQ(ierr);
-    *reason = SNES_DIVERGED_FNORM_NAN;
-  } else if(it == snes->max_its) {
-    *reason = SNES_CONVERGED_ITS;
-  }
-  PetscFunctionReturn(0);
-}
-#endif
-
-#if PETSC_VERSION_(2,3,3)
-#define vec_sol_update vec_sol_update_always
-#define vec_rhs        afine
-#endif
 
 /*  -------------------------------------------------------------------- */
 
@@ -187,7 +151,7 @@ notimplemented:
 
 static PyObject * SNESPyObjToMatStructure(PyObject *value, MatStructure *outflag)
 {
-  MatStructure flag = DIFFERENT_NONZERO_PATTERN;
+  long flag = DIFFERENT_NONZERO_PATTERN;
   if (value == NULL)
     return NULL;
   if (value == Py_None) {
@@ -197,7 +161,7 @@ static PyObject * SNESPyObjToMatStructure(PyObject *value, MatStructure *outflag
   } else if (value == Py_True) {
     flag = DIFFERENT_NONZERO_PATTERN;
   } else if (PyInt_Check(value)) {
-    flag = (MatStructure) PyInt_AsLong(value);
+    flag = PyInt_AsLong(value);
     if (flag < SAME_NONZERO_PATTERN ||
         flag > SUBSET_NONZERO_PATTERN) {
       PyErr_SetString(PyExc_ValueError,
@@ -211,7 +175,7 @@ static PyObject * SNESPyObjToMatStructure(PyObject *value, MatStructure *outflag
                     "or a valid integer value for MatStructure");
     goto fail;
   }
-  *outflag = flag;
+  *outflag = (MatStructure)flag;
   return value;
  fail:
   Py_DecRef(value);
@@ -367,7 +331,8 @@ static PetscErrorCode SNESSolve_Python(SNES snes)
   ierr = (*py->ops->computefunction)(snes,X,F);CHKERRQ(ierr); /* F <- function(X) */
   ierr = VecNorm(F,NORM_2,&fnorm);CHKERRQ(ierr);              /* fnorm <- ||F||   */
   /* Check function norm */
-  if (fnorm != fnorm) SETERRQ(PETSC_ERR_FP,"User provided compute function generated a Not-a-Number");
+  if (fnorm != fnorm)
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_FP,"User provided compute function generated a Not-a-Number");
   snes->norm = fnorm;
   /* Set parameter for default relative tolerance convergence test */
   snes->ttol = fnorm*snes->rtol;
@@ -398,9 +363,12 @@ static PetscErrorCode SNESSolve_Python(SNES snes)
     ierr = VecNorm(X,NORM_2,&xnorm);CHKERRQ(ierr);  /* xnorm <- || X || */
     ierr = VecNorm(Y,NORM_2,&ynorm);CHKERRQ(ierr);  /* ynorm <- || Y || */
     ierr = VecNorm(F,NORM_2,&fnorm);CHKERRQ(ierr);  /* fnorm <- || F || */
-    if (xnorm != xnorm) SETERRQ(PETSC_ERR_FP,"User provided routine generated a Not-a-Number");
-    if (fnorm != fnorm) SETERRQ(PETSC_ERR_FP,"User provided routine generated a Not-a-Number");
-    if (ynorm != ynorm) SETERRQ(PETSC_ERR_FP,"User provided routine generated a Not-a-Number");
+    if (xnorm != xnorm)
+      SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_FP,"User provided routine generated a Not-a-Number");
+    if (fnorm != fnorm)
+      SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_FP,"User provided routine generated a Not-a-Number");
+    if (ynorm != ynorm)
+      SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_FP,"User provided routine generated a Not-a-Number");
     ierr = PetscInfo4(snes,"iter=%D, xnorm=%18.16e, ynorm=%18.16e, fnorm=%18.16e\n",i,xnorm,ynorm,fnorm);CHKERRQ(ierr);
     snes->norm = fnorm;
 
@@ -492,8 +460,8 @@ static PetscErrorCode SNESView_Python(SNES snes,PetscViewer viewer)
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_ASCII,&isascii);CHKERRQ(ierr);
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_STRING,&isstring);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&isascii);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERSTRING,&isstring);CHKERRQ(ierr);
   if (isascii) {
     const char* pyname  = py->pyname ? py->pyname : "no yet set";
     ierr = PetscViewerASCIIPrintf(viewer,"  Python: %s\n",pyname);CHKERRQ(ierr);
@@ -562,7 +530,7 @@ static PetscErrorCode SNESDestroy_Python(SNES snes)
     ierr = VecDestroy(snes->vec_sol_update);CHKERRQ(ierr);
     snes->vec_sol_update = PETSC_NULL;
   }
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscFree(snes->data);CHKERRQ(ierr);
   snes->data = PETSC_NULL;
   ierr = PetscObjectComposeFunction((PetscObject)snes,"SNESPythonSetType_C",
@@ -589,7 +557,7 @@ PetscErrorCode PETSCSNES_DLLEXPORT SNESCreate_Python(SNES snes)
   PetscErrorCode ierr;
   PetscFunctionBegin;
 
-  ierr = Petsc4PyInitialize();CHKERRQ(ierr);
+  ierr = PetscPythonImportPetsc4Py();CHKERRQ(ierr);
 
   ierr       = PetscNew(SNES_Py,&py);CHKERRQ(ierr);
   ierr       = PetscLogObjectMemory(snes, sizeof(SNES_Py));CHKERRQ(ierr);
@@ -664,7 +632,7 @@ PetscErrorCode PETSCSNES_DLLEXPORT SNESPythonGetContext(SNES snes,void **ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(snes,SNES_COOKIE,1);
+  PetscValidHeaderSpecific(snes,SNES_CLASSID,1);
   PetscValidPointer(ctx,2);
   *ctx = NULL;
   ierr = PetscTypeCompare((PetscObject)snes,SNESPYTHON,&ispython);CHKERRQ(ierr);
@@ -698,7 +666,7 @@ PetscErrorCode PETSCSNES_DLLEXPORT SNESPythonSetContext(SNES snes,void *ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(snes,SNES_COOKIE,1);
+  PetscValidHeaderSpecific(snes,SNES_CLASSID,1);
   if (ctx) PetscValidPointer(ctx,2);
   ierr = PetscTypeCompare((PetscObject)snes,SNESPYTHON,&ispython);CHKERRQ(ierr);
   if (!ispython) PetscFunctionReturn(0);
@@ -711,7 +679,7 @@ PetscErrorCode PETSCSNES_DLLEXPORT SNESPythonSetContext(SNES snes,void *ctx)
   old = py->self; py->self = NULL; Py_DecRef(old);
   /* set current Python context in the SNES object  */
   py->self = (PyObject *) self; Py_IncRef(py->self);
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscPythonGetFullName(py->self,&py->pyname);CHKERRQ(ierr);
   SNES_PYTHON_CALL_SNESARG(snes, "create");
   if (snes->setupcalled) snes->setupcalled = PETSC_FALSE;
@@ -720,7 +688,7 @@ PetscErrorCode PETSCSNES_DLLEXPORT SNESPythonSetContext(SNES snes,void *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
+#if 0
 
 PETSC_EXTERN_CXX_BEGIN
 EXTERN PetscErrorCode PETSCSNES_DLLEXPORT SNESPythonSetType(SNES,const char[]);
@@ -751,7 +719,7 @@ PetscErrorCode PETSCSNES_DLLEXPORT SNESPythonSetType(SNES snes,const char pyname
   PetscErrorCode (*f)(SNES, const char[]) = 0;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(snes,SNES_COOKIE,1);
+  PetscValidHeaderSpecific(snes,SNES_CLASSID,1);
   PetscValidCharPointer(pyname,2);
   ierr = PetscObjectQueryFunction((PetscObject)snes,"SNESPythonSetType_C",
                                   (PetscVoidFunction*)&f);CHKERRQ(ierr);
