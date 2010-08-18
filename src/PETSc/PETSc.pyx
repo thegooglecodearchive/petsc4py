@@ -1,18 +1,31 @@
 # --------------------------------------------------------------------
 
 cdef extern from *:
-    ctypedef char* char_p       "char*"
-    ctypedef char* const_char_p "const char*"
+    ctypedef char const_char "const char"
 
-cdef inline object cp2str(const_char_p p):
-    if p == NULL: return None
-    else:         return p
+cdef inline object bytes2str(const_char p[]):
+     if p == NULL: 
+         return None
+     cdef bytes s = <char*>p
+     if isinstance(s, str):
+         return s
+     else:
+         return s.decode()
 
-cdef inline char_p str2cp(object s) except ? NULL:
-    if s is None: return NULL
-    else:         return s
+cdef inline object str2bytes(object s, const_char *p[]):
+    if s is None:
+        p[0] = NULL
+        return None
+    if not isinstance(s, bytes):
+        s = s.encode()
+    p[0] = <const_char*>(<char*>s)
+    return s
 
-include "allocate.pxi"
+cdef inline str S_(const_char p[]):
+     if p == NULL: return None
+     cdef bytes s = <char*>p
+     return s if isinstance(s, str) else s.decode()
+
 
 # --------------------------------------------------------------------
 
@@ -109,6 +122,7 @@ include "petscmpi.pxi"
 include "petscsys.pxi"
 include "petsclog.pxi"
 include "petscobj.pxi"
+include "petscfwk.pxi"
 include "petscvwr.pxi"
 include "petscrand.pxi"
 include "petscis.pxi"
@@ -134,6 +148,7 @@ include "Sys.pyx"
 include "Log.pyx"
 include "Comm.pyx"
 include "Object.pyx"
+include "Fwk.pyx"
 include "Viewer.pyx"
 include "Random.pyx"
 include "IS.pyx"
@@ -155,53 +170,79 @@ include "CAPI.pyx"
 cdef extern from "Python.h":
     int Py_IsInitialized() nogil
 
+cdef extern from * nogil:
+    PetscEHF *PetscTBEH
+    PetscEHF *PetscPyEH
+    int PetscPushErrorHandlerPython()
+    int PetscPopErrorHandlerPython()
+
 cdef object tracebacklist = []
 
-cdef int tracebackfunc(int line,
-                   const_char_p cfun,
-                   const_char_p cfile,
-                   const_char_p cdir,
-                   int n, int p,
-                   const_char_p mess,
-                   void *ctx) nogil:
-    if Py_IsInitialized() and (<void*>tracebacklist) != NULL:
-        return traceback(line, cfun, cfile, cdir, n, p, mess, ctx)
-    else:
-        return PetscTBEH(line, cfun, cfile, cdir, n, p, mess, ctx)
-
-cdef int traceback(int line,
-                   const_char_p cfun,
-                   const_char_p cfile,
-                   const_char_p cdir,
-                   int n, int p,
-                   const_char_p mess,
-                   void *ctx) with gil:
+cdef int traceback(MPI_Comm       comm,
+                   int            line,
+                   const_char    *cfun,
+                   const_char    *cfile,
+                   const_char    *cdir,
+                   int            n,
+                   PetscErrorType p,
+                   const_char    *mess,
+                   void          *ctx) with gil:
     cdef PetscLogDouble mem=0
     cdef PetscLogDouble rss=0
-    cdef const_char_p text=NULL
+    cdef const_char    *text=NULL
+    global tracebacklist
     cdef object tbl = tracebacklist
-    fun = cp2str(cfun)
-    fnm = cp2str(cfile)
-    dnm = cp2str(cdir)
+    fun = bytes2str(cfun)
+    fnm = bytes2str(cfile)
+    dnm = bytes2str(cdir)
     m = "%s() line %d in %s%s" % (fun, line, dnm, fnm)
     tbl.insert(0, m)
-    if p != 1: return n
+    if p != PETSC_ERROR_INITIAL: 
+        return n
     #
     del tbl[1:] # clear any previous stuff
     if n == PETSC_ERR_MEM: # special case
         PetscMallocGetCurrentUsage(&mem)
         PetscMemoryGetCurrentUsage(&rss)
-        m = "Out of memory. " \
-            "Allocated: %d, " \
-            "Used by process: %d" % (mem, rss)
+        m = ("Out of memory. "
+             "Allocated: %d, "
+             "Used by process: %d") % (mem, rss)
         tbl.append(m)
     else:
         PetscErrorMessage(n, &text, NULL)
-    if text != NULL: tbl.append(cp2str(text))
-    if mess != NULL: tbl.append(cp2str(mess))
+    if text != NULL: tbl.append(bytes2str(text))
+    if mess != NULL: tbl.append(bytes2str(mess))
     return n
 
+cdef int PetscPythonErrorHandler(
+    MPI_Comm       comm,
+    int            line,
+    const_char    *cfun,
+    const_char    *cfile,
+    const_char    *cdir,
+    int            n,
+    PetscErrorType p,
+    const_char    *mess,
+    void          *ctx) nogil:
+    global tracebacklist
+    if Py_IsInitialized() and (<void*>tracebacklist) != NULL:
+        return traceback(comm, line, cfun, cfile, cdir, n, p, mess, ctx)
+    else:
+        return PetscTBEH(comm, line, cfun, cfile, cdir, n, p, mess, ctx)
+
+PetscPyEH = PetscPythonErrorHandler
+
 # --------------------------------------------------------------------
+
+cdef extern from "stdlib.h" nogil:
+    void* malloc(size_t)
+    void* realloc (void*,size_t)
+    void free(void*)
+
+cdef extern from "string.h"  nogil:
+    void* memset(void*,int,size_t)
+    void* memcpy(void*,void*,size_t)
+    char* strdup(char*)
 
 cdef extern from "Python.h":
     int Py_AtExit(void (*)())
@@ -213,7 +254,7 @@ cdef extern from "stdio.h" nogil:
     int fprintf(FILE *, char *, ...)
 
 cdef extern from "initpkg.h":
-    int PetscInitializeAllPackages(char[])
+    int PetscInitializePackageAll(char[])
 
 cdef extern from "libpetsc4py.h":
     int PetscPythonRegisterAll(char[])
@@ -226,16 +267,17 @@ cdef int getinitargs(object args, int *argc, char **argv[]) except -1:
     cdef int i, c = 0
     cdef char **v = NULL
     if args is None: args = []
-    args = [str(a) for a in args]
+    args = [str(a).encode() for a in args]
     args = [a for a in args if a]
     c = <int>    len(args)
     v = <char**> malloc((c+1)*sizeof(char*))
     if v == NULL: raise MemoryError
-    else: memset(v, 0, (c+1)*sizeof(char*))
+    memset(v, 0, (c+1)*sizeof(char*))
     try:
         for 0 <= i < c:
-            v[i] = strdup(str2cp(args[i]))
-            if v[i] == NULL: raise MemoryError
+            v[i] = strdup(args[i])
+            if v[i] == NULL: 
+                raise MemoryError
     except:
         delinitargs(&c, &v); raise
     argc[0] = c; argv[0] = v
@@ -260,7 +302,7 @@ cdef void finalize() nogil:
     if not (<int>PetscInitializeCalled): return
     if (<int>PetscFinalizeCalled): return
     # deinstall custom error handler
-    ierr = PetscPopErrorHandler()
+    ierr = PetscPopErrorHandlerPython()
     if ierr != 0:
         fprintf(stderr, "PetscPopErrorHandler() failed "
                 "[error code: %d]\n", ierr)
@@ -280,7 +322,9 @@ cdef int initialize(object args) except -1:
     # initialize PETSc
     CHKERR( PetscInitialize(&PyPetsc_Argc, &PyPetsc_Argv, NULL, NULL) )
     # install custom error handler
-    CHKERR( PetscPushErrorHandler(tracebackfunc, <void*>tracebacklist) )
+    global PetscPyEH
+    PetscPyEH = PetscPythonErrorHandler
+    CHKERR( PetscPushErrorHandlerPython() )
     # register finalization function
     if Py_AtExit(finalize) < 0:
         PySys_WriteStderr("warning: could not register"
@@ -288,43 +332,45 @@ cdef int initialize(object args) except -1:
     return 1 # and we are done, enjoy !!
 
 cdef extern from *:
-    PetscCookie PETSC_OBJECT_COOKIE    "PETSC_OBJECT_COOKIE"
-    PetscCookie PETSC_VIEWER_COOKIE    "PETSC_VIEWER_COOKIE"
-    PetscCookie PETSC_RANDOM_COOKIE    "PETSC_RANDOM_COOKIE"
-    PetscCookie PETSC_IS_COOKIE        "IS_COOKIE"
-    PetscCookie PETSC_LGMAP_COOKIE     "IS_LTOGM_COOKIE"
-    PetscCookie PETSC_VEC_COOKIE       "VEC_COOKIE"
-    PetscCookie PETSC_SCATTER_COOKIE   "VEC_SCATTER_COOKIE"
-    PetscCookie PETSC_MAT_COOKIE       "MAT_COOKIE"
-    PetscCookie PETSC_NULLSPACE_COOKIE "MAT_NULLSPACE_COOKIE"
-    PetscCookie PETSC_PC_COOKIE        "PC_COOKIE"
-    PetscCookie PETSC_KSP_COOKIE       "KSP_COOKIE"
-    PetscCookie PETSC_SNES_COOKIE      "SNES_COOKIE"
-    PetscCookie PETSC_TS_COOKIE        "TS_COOKIE"
-    PetscCookie PETSC_AO_COOKIE        "AO_COOKIE"
-    PetscCookie PETSC_DA_COOKIE        "DM_COOKIE"
+    PetscClassId PETSC_OBJECT_CLASSID    "PETSC_OBJECT_CLASSID"
+    PetscClassId PETSC_FWK_CLASSID       "PETSC_FWK_CLASSID"
+    PetscClassId PETSC_VIEWER_CLASSID    "PETSC_VIEWER_CLASSID"
+    PetscClassId PETSC_RANDOM_CLASSID    "PETSC_RANDOM_CLASSID"
+    PetscClassId PETSC_IS_CLASSID        "IS_CLASSID"
+    PetscClassId PETSC_LGMAP_CLASSID     "IS_LTOGM_CLASSID"
+    PetscClassId PETSC_VEC_CLASSID       "VEC_CLASSID"
+    PetscClassId PETSC_SCATTER_CLASSID   "VEC_SCATTER_CLASSID"
+    PetscClassId PETSC_MAT_CLASSID       "MAT_CLASSID"
+    PetscClassId PETSC_NULLSPACE_CLASSID "MAT_NULLSPACE_CLASSID"
+    PetscClassId PETSC_PC_CLASSID        "PC_CLASSID"
+    PetscClassId PETSC_KSP_CLASSID       "KSP_CLASSID"
+    PetscClassId PETSC_SNES_CLASSID      "SNES_CLASSID"
+    PetscClassId PETSC_TS_CLASSID        "TS_CLASSID"
+    PetscClassId PETSC_AO_CLASSID        "AO_CLASSID"
+    PetscClassId PETSC_DA_CLASSID        "DM_CLASSID"
 
 cdef int register(char path[]) except -1:
     # make sure all PETSc packages are initialized
-    CHKERR( PetscInitializeAllPackages(NULL) )
+    CHKERR( PetscInitializePackageAll(NULL) )
     # register custom implementations
     CHKERR( PetscPythonRegisterAll(path) )
     # register Python types
-    TypeRegistryAdd(PETSC_OBJECT_COOKIE,    Object)
-    TypeRegistryAdd(PETSC_VIEWER_COOKIE,    Viewer)
-    TypeRegistryAdd(PETSC_RANDOM_COOKIE,    Random)
-    TypeRegistryAdd(PETSC_IS_COOKIE,        IS)
-    TypeRegistryAdd(PETSC_LGMAP_COOKIE,     LGMap)
-    TypeRegistryAdd(PETSC_VEC_COOKIE,       Vec)
-    TypeRegistryAdd(PETSC_SCATTER_COOKIE,   Scatter)
-    TypeRegistryAdd(PETSC_MAT_COOKIE,       Mat)
-    TypeRegistryAdd(PETSC_NULLSPACE_COOKIE, NullSpace)
-    TypeRegistryAdd(PETSC_PC_COOKIE,        PC)
-    TypeRegistryAdd(PETSC_KSP_COOKIE,       KSP)
-    TypeRegistryAdd(PETSC_SNES_COOKIE,      SNES)
-    TypeRegistryAdd(PETSC_TS_COOKIE,        TS)
-    TypeRegistryAdd(PETSC_AO_COOKIE,        AO)
-    TypeRegistryAdd(PETSC_DA_COOKIE,        DA)
+    TypeRegistryAdd(PETSC_OBJECT_CLASSID,    Object)
+    TypeRegistryAdd(PETSC_FWK_CLASSID,       Fwk)
+    TypeRegistryAdd(PETSC_VIEWER_CLASSID,    Viewer)
+    TypeRegistryAdd(PETSC_RANDOM_CLASSID,    Random)
+    TypeRegistryAdd(PETSC_IS_CLASSID,        IS)
+    TypeRegistryAdd(PETSC_LGMAP_CLASSID,     LGMap)
+    TypeRegistryAdd(PETSC_VEC_CLASSID,       Vec)
+    TypeRegistryAdd(PETSC_SCATTER_CLASSID,   Scatter)
+    TypeRegistryAdd(PETSC_MAT_CLASSID,       Mat)
+    TypeRegistryAdd(PETSC_NULLSPACE_CLASSID, NullSpace)
+    TypeRegistryAdd(PETSC_PC_CLASSID,        PC)
+    TypeRegistryAdd(PETSC_KSP_CLASSID,       KSP)
+    TypeRegistryAdd(PETSC_SNES_CLASSID,      SNES)
+    TypeRegistryAdd(PETSC_TS_CLASSID,        TS)
+    TypeRegistryAdd(PETSC_AO_CLASSID,        AO)
+    TypeRegistryAdd(PETSC_DA_CLASSID,        DA)
     return 0 # and we are done, enjoy !!
 
 # --------------------------------------------------------------------
@@ -336,7 +382,8 @@ def _initialize(args=None):
     PetscError = Error
     #
     global __file__
-    cdef char* path = str2cp(__file__)
+    cdef bytes filename = __file__.encode()
+    cdef char* path = filename
     cdef int ready = initialize(args)
     if ready: register(path)
     #
