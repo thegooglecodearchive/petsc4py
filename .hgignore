@@ -1,0 +1,14 @@
+syntax: glob
+build
+docs/*.html
+docs/*.pdf
+docs/apiref
+docs/usrman
+dist
+MANIFEST
+__pycache__
+*.pyc
+*.pyo
+*~
+#petsc4py.PETSc.c
+#petsc4py.PETSc*.h
