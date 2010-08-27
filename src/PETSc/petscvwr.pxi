@@ -1,17 +1,17 @@
-cdef extern  from "petsc.h":
+cdef extern from "petscsys.h":
 
     ctypedef char* PetscViewerType "const char*"
-    PetscViewerType PETSC_VIEWER_SOCKET
-    PetscViewerType PETSC_VIEWER_ASCII
-    PetscViewerType PETSC_VIEWER_BINARY
-    PetscViewerType PETSC_VIEWER_STRING
-    PetscViewerType PETSC_VIEWER_DRAW
-    PetscViewerType PETSC_VIEWER_VU
-    PetscViewerType PETSC_VIEWER_MATHEMATICA
-    PetscViewerType PETSC_VIEWER_SILO
-    PetscViewerType PETSC_VIEWER_NETCDF
-    PetscViewerType PETSC_VIEWER_HDF5
-    PetscViewerType PETSC_VIEWER_MATLAB
+    PetscViewerType PETSCVIEWERSOCKET
+    PetscViewerType PETSCVIEWERASCII
+    PetscViewerType PETSCVIEWERBINARY
+    PetscViewerType PETSCVIEWERSTRING
+    PetscViewerType PETSCVIEWERDRAW
+    PetscViewerType PETSCVIEWERVU
+    PetscViewerType PETSCVIEWERMATHEMATICA
+    PetscViewerType PETSCVIEWERSILO
+    PetscViewerType PETSCVIEWERNETCDF
+    PetscViewerType PETSCVIEWERHDF5
+    PetscViewerType PETSCVIEWERMATLAB
 
 
     ctypedef enum PetscViewerFormat:
@@ -99,3 +99,17 @@ cdef extern  from "petsc.h":
     PetscViewer PETSC_VIEWER_DRAW_(MPI_Comm) except? NULL
     PetscViewer PETSC_VIEWER_DRAW_SELF
     PetscViewer PETSC_VIEWER_DRAW_WORLD
+
+# ---
+
+cdef inline PetscFileMode filemode(object mode) except <PetscFileMode>(-1):
+    if mode is None:
+        return PETSC_FILE_MODE_WRITE
+    if isinstance(mode, str):
+        if   mode == 'r'  : return PETSC_FILE_MODE_READ
+        elif mode == 'w'  : return PETSC_FILE_MODE_WRITE
+        elif mode == 'a'  : return PETSC_FILE_MODE_APPEND
+        elif mode == 'u'  : return PETSC_FILE_MODE_UPDATE
+        elif mode == 'au' : return PETSC_FILE_MODE_APPEND_UPDATE
+        elif mode == 'ua' : return PETSC_FILE_MODE_APPEND_UPDATE
+    return mode

@@ -1,8 +1,6 @@
-#define PETSCKSP_DLL
-
 /* -------------------------------------------------------------------------- */
 
-#include "src/inline/python.h"
+#include "python_core.h"
 #include "private/pcimpl.h"
 
 /* -------------------------------------------------------------------------- */
@@ -60,9 +58,9 @@ typedef struct {
   PC_PYTHON_CALL_TAIL(pc, PyMethod)                             \
 /**/
 
-#define PC_PYTHON_SETERRSUP(pc, PyMethod)                               \
-  SETERRQ1(PETSC_ERR_SUP,"method %s() not implemented",PyMethod);       \
-  PetscFunctionReturn(PETSC_ERR_SUP)                                    \
+#define PC_PYTHON_SETERRSUP(pc, PyMethod)    \
+  PETSC_PYTHON_NOTIMPLEMENTED(pd, PyMethod); \
+  PetscFunctionReturn(PETSC_ERR_SUP)         \
 /**/
 
 /* -------------------------------------------------------------------------- */
@@ -95,7 +93,7 @@ static PetscErrorCode PCDestroy_Python(PC pc)
     PC_PYTHON_CALL_NOARGS(pc, "destroy");
     py->self = NULL; Py_DecRef(self);
   }
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscFree(pc->data);CHKERRQ(ierr);
   pc->data = PETSC_NULL;
   ierr = PetscObjectComposeFunction((PetscObject)pc,"PCPythonSetType_C",
@@ -133,8 +131,8 @@ static PetscErrorCode PCView_Python(PC pc,PetscViewer viewer)
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_ASCII,&isascii);CHKERRQ(ierr);
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_STRING,&isstring);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&isascii);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERSTRING,&isstring);CHKERRQ(ierr);
   if (isascii) {
     const char* pyname  = py->pyname ? py->pyname  : "no yet set";
     ierr = PetscViewerASCIIPrintf(viewer,"  Python: %s\n",pyname);CHKERRQ(ierr);
@@ -308,9 +306,10 @@ static PetscErrorCode PCSetUp_Python(PC pc)
   PetscErrorCode ierr;
   PetscFunctionBegin;
   if (!py->self) {
-    SETERRQ(PETSC_ERR_ARG_WRONGSTATE,"Python context not set, call one of \n"
-            " * PCPythonSetType(pc,\"[package.]module.class\")\n"
-            " * PCSetFromOptions(pc) and pass option -pc_python_type [package.]module.class");
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE,
+             "Python context not set, call one of \n"
+             " * PCPythonSetType(pc,\"[package.]module.class\")\n"
+             " * PCSetFromOptions(pc) and pass option -pc_python_type [package.]module.class");
   }
   PC_PYTHON_CALL_PCARG(pc, "setUp");
   ierr = PCPythonFillOperations(pc);CHKERRQ(ierr);
@@ -336,7 +335,7 @@ PetscErrorCode PETSCTS_DLLEXPORT PCCreate_Python(PC pc)
   PetscErrorCode ierr;
   PetscFunctionBegin;
 
-  ierr = Petsc4PyInitialize();CHKERRQ(ierr);
+  ierr = PetscPythonImportPetsc4Py();CHKERRQ(ierr);
 
   ierr = PetscNew(PC_Py,&py);CHKERRQ(ierr);
   ierr = PetscLogObjectMemory(pc,sizeof(PC_Py));CHKERRQ(ierr);
@@ -393,7 +392,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT PCPythonGetContext(PC pc,void **ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(pc,PC_COOKIE,1);
+  PetscValidHeaderSpecific(pc,PC_CLASSID,1);
   PetscValidPointer(ctx,2);
   *ctx = NULL;
   ierr = PetscTypeCompare((PetscObject)pc,PCPYTHON,&ispython);CHKERRQ(ierr);
@@ -427,7 +426,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT PCPythonSetContext(PC pc,void *ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(pc,PC_COOKIE,1);
+  PetscValidHeaderSpecific(pc,PC_CLASSID,1);
   if (ctx) PetscValidPointer(ctx,2);
   ierr = PetscTypeCompare((PetscObject)pc,PCPYTHON,&ispython);CHKERRQ(ierr);
   if (!ispython) PetscFunctionReturn(0);
@@ -440,19 +439,20 @@ PetscErrorCode PETSCKSP_DLLEXPORT PCPythonSetContext(PC pc,void *ctx)
   old = py->self; py->self = NULL; Py_DecRef(old);
   /* set current Python context in the PC object  */
   py->self = (PyObject *) self; Py_IncRef(py->self);
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscPythonGetFullName(py->self,&py->pyname);CHKERRQ(ierr);
   PC_PYTHON_CALL_PCARG(pc, "create");
   if (pc->setupcalled) pc->setupcalled = 1;
-#if PETSC_VERSION_(2,3,2)
-  ierr = PCPythonFillOperations(pc);CHKERRQ(ierr);
-#endif
   PetscFunctionReturn(0);
 }
 
 /* -------------------------------------------------------------------------- */
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
+#if 0
+
+PETSC_EXTERN_CXX_BEGIN
+EXTERN PetscErrorCode PETSCSNES_DLLEXPORT PCPythonSetType(PC,const char[]);
+PETSC_EXTERN_CXX_END
 
 PETSC_EXTERN_CXX_BEGIN
 EXTERN PetscErrorCode PETSCKSP_DLLEXPORT PCPythonSetType(PC,const char[]);
@@ -484,7 +484,7 @@ PetscErrorCode PETSCKSP_DLLEXPORT PCPythonSetType(PC pc,const char pyname[])
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(pc,PC_COOKIE,1);
+  PetscValidHeaderSpecific(pc,PC_CLASSID,1);
   PetscValidCharPointer(pyname,2);
   ierr = PetscObjectQueryFunction((PetscObject)pc,"PCPythonSetType_C",(PetscVoidFunction*)&f);CHKERRQ(ierr);
   if (f) {ierr = (*f)(pc,pyname);CHKERRQ(ierr);}
