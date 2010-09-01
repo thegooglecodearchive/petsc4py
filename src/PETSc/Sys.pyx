@@ -9,9 +9,9 @@ cdef class Sys:
         cdef int cmicro = PETSC_VERSION_SUBMINOR
         cdef int cpatch = PETSC_VERSION_PATCH
         cdef int crelease = PETSC_VERSION_RELEASE ## XXX unused
-        cdef const_char_p cdate       = PETSC_VERSION_DATE
-        cdef const_char_p cpatchdate  = PETSC_VERSION_PATCH_DATE
-        cdef const_char_p cauthorinfo = PETSC_AUTHOR_INFO
+        cdef const_char *cdate       = PETSC_VERSION_DATE
+        cdef const_char *cpatchdate  = PETSC_VERSION_PATCH_DATE
+        cdef const_char *cauthorinfo = PETSC_AUTHOR_INFO
         version = (cmajor, cminor, cmicro)
         out = version
         if patch or date or author:
@@ -19,11 +19,11 @@ cdef class Sys:
             if patch:
                 out.append(cpatch)
             if date:
-                if patch: date = [cp2str(cdate), cp2str(cpatchdate)]
-                else:     date = cp2str(cdate)
+                if patch: date = [bytes2str(cdate), bytes2str(cpatchdate)]
+                else:     date = bytes2str(cdate)
                 out.append(date)
             if author:
-                author = cp2str(cauthorinfo).split('\n')
+                author = bytes2str(cauthorinfo).split('\n')
                 author = [s.strip() for s in author if s]
                 out.append(author)
         return tuple(out)
@@ -35,18 +35,18 @@ cdef class Sys:
         cdef int cmicro = PETSC_VERSION_SUBMINOR
         cdef int cpatch = PETSC_VERSION_PATCH
         cdef int crelease = PETSC_VERSION_RELEASE
-        cdef const_char_p cdate       = PETSC_VERSION_DATE
-        cdef const_char_p cpatchdate  = PETSC_VERSION_PATCH_DATE
-        cdef const_char_p cauthorinfo = PETSC_AUTHOR_INFO
-        author = str(cp2str(cauthorinfo)).split('\n')
+        cdef const_char *cdate       = PETSC_VERSION_DATE
+        cdef const_char *cpatchdate  = PETSC_VERSION_PATCH_DATE
+        cdef const_char *cauthorinfo = PETSC_AUTHOR_INFO
+        author = bytes2str(cauthorinfo).split('\n')
         author = [s.strip() for s in author if s]
         return dict(major      = cmajor,
                     minor      = cminor,
                     subminor   = cmicro,
                     patch      = cpatch,
                     release    = <bint>crelease,
-                    date       = cp2str(cdate),
-                    patchdate  = cp2str(cpatchdate),
+                    date       = bytes2str(cdate),
+                    patchdate  = bytes2str(cpatchdate),
                     authorinfo = author)
 
     # --- xxx ---
@@ -90,7 +90,8 @@ cdef class Sys:
             message = ''.join(format) % args
         else:
             message = ''
-        cdef char *m = str2cp(message)
+        cdef const_char *m = NULL
+        message = str2bytes(message, &m)
         CHKERR( PetscPrintf(ccomm, m) )
 
     @classmethod
@@ -104,7 +105,8 @@ cdef class Sys:
         format = ['%s', sep] * len(args)
         format[-1] = end
         message = ''.join(format) % args
-        cdef char *m = str2cp(message)
+        cdef const_char *m = NULL
+        message = str2bytes(message, &m)
         CHKERR( PetscSynchronizedPrintf(ccomm, m) )
         if flush: CHKERR( PetscSynchronizedFlush(ccomm) )
 
@@ -120,11 +122,40 @@ cdef class Sys:
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
         cdef PetscInt bs=0, n=0, N=0
         CHKERR( Sys_SplitSizes(ccomm, size, bsize, &bs, &n, &N) )
-        return (n, N)
+        return (toInt(n), toInt(N))
 
     @classmethod
     def sleep(cls, seconds=1):
         cdef int s = seconds
         CHKERR( PetscSleep(s) )
 
+    # --- xxx ---
+
+    @classmethod
+    def pushErrorHandler(cls, errhandler):
+        if errhandler == "python":
+            CHKERR( PetscPushErrorHandlerPython() )
+        elif errhandler == "debugger":
+            CHKERR( PetscPushErrorHandler(
+                    PetscAttachDebuggerErrorHandler, NULL) )
+        elif errhandler == "emacs":
+            CHKERR( PetscPushErrorHandler(
+                    PetscEmacsClientErrorHandler, NULL) )
+        elif errhandler == "traceback":
+            CHKERR( PetscPushErrorHandler(
+                    PetscTraceBackErrorHandler, NULL) )
+        elif errhandler == "ignore":
+            CHKERR( PetscPushErrorHandler(
+                    PetscIgnoreErrorHandler, NULL) )
+        elif errhandler == "mpiabort":
+            CHKERR( PetscPushErrorHandler(
+                    PetscMPIAbortErrorHandler, NULL) )
+        elif errhandler == "abort":
+            CHKERR( PetscPushErrorHandler(
+                    PetscAbortErrorHandler, NULL) )
+
+    @classmethod
+    def popErrorHandler(cls):
+        CHKERR( PetscPopErrorHandler() )
+    
 # --------------------------------------------------------------------
