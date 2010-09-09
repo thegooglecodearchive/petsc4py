@@ -1,11 +1,10 @@
 #ifndef _COMPAT_PETSC_DA_H
 #define _COMPAT_PETSC_DA_H
 
-#if PETSC_VERSION_(3,0,0)
+#if (PETSC_VERSION_(3,0,0))
 #undef __FUNCT__
 #define __FUNCT__ "DASetCoordinates"
-static PETSC_UNUSED
-PetscErrorCode DASetCoordinates_Compat(DA da,Vec c)
+static PetscErrorCode DASetCoordinates_Compat(DA da,Vec c)
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
@@ -18,12 +17,11 @@ PetscErrorCode DASetCoordinates_Compat(DA da,Vec c)
 #define DASetCoordinates DASetCoordinates_Compat
 #endif
 
-#if (PETSC_VERSION_(3,1,0) ||                    \
+#if (PETSC_VERSION_(3,1,0) || \
      PETSC_VERSION_(3,0,0))
 #undef __FUNCT__
 #define __FUNCT__ "DAGetCoordinates"
-static PETSC_UNUSED
-PetscErrorCode DAGetCoordinates_Compat(DA da,Vec *c)
+static PetscErrorCode DAGetCoordinates_Compat(DA da,Vec *c)
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
@@ -34,8 +32,7 @@ PetscErrorCode DAGetCoordinates_Compat(DA da,Vec *c)
 #define DAGetCoordinates DAGetCoordinates_Compat
 #undef __FUNCT__
 #define __FUNCT__ "DAGetCoordinateDA"
-static PETSC_UNUSED
-PetscErrorCode DAGetCoordinateDA_Compat(DA da,DA *cda)
+static PetscErrorCode DAGetCoordinateDA_Compat(DA da,DA *cda)
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
@@ -46,8 +43,7 @@ PetscErrorCode DAGetCoordinateDA_Compat(DA da,DA *cda)
 #define DAGetCoordinateDA DAGetCoordinateDA_Compat
 #undef __FUNCT__
 #define __FUNCT__ "DAGetGhostedCoordinates"
-static PETSC_UNUSED
-PetscErrorCode DAGetGhostedCoordinates_Compat(DA da,Vec *c)
+static PetscErrorCode DAGetGhostedCoordinates_Compat(DA da,Vec *c)
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
@@ -58,88 +54,10 @@ PetscErrorCode DAGetGhostedCoordinates_Compat(DA da,Vec *c)
 #define DAGetGhostedCoordinates DAGetGhostedCoordinates_Compat
 #endif
 
-#if (PETSC_VERSION_(2,3,3) || \
-     PETSC_VERSION_(2,3,2))
-#define DM_COOKIE DA_COOKIE
-#define DA_XYZGHOSTED ((DAPeriodicType)-1)
-#endif
-
-#if PETSC_VERSION_(2,3,3)
-#undef __FUNCT__
-#define __FUNCT__ "DASetCoordinates"
-static PETSC_UNUSED
-PetscErrorCode DASetCoordinates_Compat(DA da,Vec c)
-{
-  Vec            cold;
-  PetscErrorCode ierr;
-  PetscFunctionBegin;
-  PetscValidHeaderSpecific(da,DA_COOKIE,1);
-  PetscValidHeaderSpecific(c,VEC_COOKIE,2);
-  ierr = PetscObjectReference((PetscObject)c);CHKERRQ(ierr);
-  ierr = DASetCoordinates(da,c);CHKERRQ(ierr);
-  PetscFunctionReturn(0);
-}
-#define DASetCoordinates DASetCoordinates_Compat
-#endif
-
-#if PETSC_VERSION_(2,3,2)
-#undef __FUNCT__
-#define __FUNCT__ "DASetCoordinates"
-static PETSC_UNUSED
-PetscErrorCode DASetCoordinates_Compat(DA da,Vec c)
-{
-  Vec            cold;
-  PetscErrorCode ierr;
-  PetscFunctionBegin;
-  PetscValidHeaderSpecific(da,DA_COOKIE,1);
-  PetscValidHeaderSpecific(c,VEC_COOKIE,2);
-  ierr = DAGetCoordinates(da,&cold);CHKERRQ(ierr);
-  ierr = PetscObjectReference((PetscObject)c);CHKERRQ(ierr);
-  ierr = DASetCoordinates(da,c);CHKERRQ(ierr);
-  if (cold) {ierr=VecDestroy(cold);CHKERRQ(ierr);}
-  PetscFunctionReturn(0);
-}
-#define DASetCoordinates DASetCoordinates_Compat
-#undef __FUNCT__
-#define __FUNCT__ "DASetUniformCoordinates"
-static PETSC_UNUSED
-PetscErrorCode DASetUniformCoordinates_Compat(DA da,PetscReal xmin,PetscReal xmax,PetscReal ymin,PetscReal ymax,PetscReal zmin,PetscReal zmax)
-{
-  Vec            cold;
-  PetscErrorCode ierr;
-  PetscFunctionBegin;
-  PetscValidHeaderSpecific(da,DA_COOKIE,1);
-  ierr = DAGetCoordinates(da,&cold);CHKERRQ(ierr);
-  ierr = DASetUniformCoordinates(da,xmin,xmax,ymin,ymax,zmin,zmax);CHKERRQ(ierr);
-  if (cold) {ierr=VecDestroy(cold);CHKERRQ(ierr);}
-  PetscFunctionReturn(0);
-}
-#define DASetUniformCoordinates DASetUniformCoordinates_Compat
-#endif
-
-#if (PETSC_VERSION_(2,3,3) || \
-     PETSC_VERSION_(2,3,2))
-#undef __FUNCT__
-#define __FUNCT__ "DACreate"
-static PETSC_UNUSED
-PetscErrorCode DACreate_Compat(MPI_Comm comm,PetscInt dim,DAPeriodicType wrap,DAStencilType stencil_type,
-			       PetscInt M, PetscInt N,PetscInt P,PetscInt m,PetscInt n,PetscInt p,
-			       PetscInt dof,PetscInt sw,
-			       const PetscInt lx[],const PetscInt ly[],const PetscInt lz[],DA *da)
-{
-  return DACreate(comm,dim,wrap,stencil_type,M,N,P,m,n,p,dof,sw,
-		  (PetscInt*)lx,(PetscInt*)ly,(PetscInt*)lz,da);
-}
-#define DACreate DACreate_Compat
-#endif
-
-#if (PETSC_VERSION_(3,0,0) || \
-     PETSC_VERSION_(2,3,3) || \
-     PETSC_VERSION_(2,3,2))
+#if (PETSC_VERSION_(3,0,0))
 #undef __FUNCT__
 #define __FUNCT__ "DASetOptionsPrefix"
-static PETSC_UNUSED
-PetscErrorCode DASetOptionsPrefix(DA da,const char prefix[])
+static PetscErrorCode DASetOptionsPrefix(DA da,const char prefix[])
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
@@ -149,13 +67,10 @@ PetscErrorCode DASetOptionsPrefix(DA da,const char prefix[])
 }
 #endif
 
-#if (PETSC_VERSION_(3,0,0) || \
-     PETSC_VERSION_(2,3,3) || \
-     PETSC_VERSION_(2,3,2))
+#if (PETSC_VERSION_(3,0,0))
 #undef __FUNCT__
 #define __FUNCT__ "DASetFromOptions"
-static PETSC_UNUSED
-PetscErrorCode DASetFromOptions(DA da) {
+static PetscErrorCode DASetFromOptions(DA da) {
   PetscErrorCode ierr;
   PetscFunctionBegin;
   PetscValidHeaderSpecific(da,DM_COOKIE,1);
