@@ -99,25 +99,25 @@ class BaseTestVec(object):
         self.assertEqual(self.vec[end-1], -7)
         for i in range(start, end): self.vec[i] = i
         values = [self.vec[i] for i in range(start, end)]
-        self.assertEqual(values, range(start, end))
+        self.assertEqual(values, list(range(start, end)))
         sz = self.vec.getSize()
         self.assertEqual(self.vec.sum(), (sz-1)/2.0*sz)
 
     def testGetSetValsBlocked(self):
         lsize, gsize = self.vec.getSizes()
         start, end = self.vec.getOwnershipRange()
-        bsizes  = range(1, lsize+1)
-        nblocks = range(1, lsize+1)
+        bsizes  = list(range(1, lsize+1))
+        nblocks = list(range(1, lsize+1))
         compat = [(bs, nb)
                   for bs in bsizes  if not (gsize%bs or lsize % bs)
                   for nb in nblocks if bs*nb <= lsize]
         for bsize, nblock in compat:
             self.vec.setBlockSize(bsize)
-            bindex = [start//bsize+i  for i in xrange(nblock)]
-            bvalue = [float(i) for i in xrange(nblock*bsize)]
+            bindex = [start//bsize+i  for i in range(nblock)]
+            bvalue = [float(i) for i in range(nblock*bsize)]
             self.vec.setValuesBlocked(bindex, bvalue)
             self.vec.assemble()
-            index = [start+i for i in xrange(nblock*bsize)]
+            index = [start+i for i in range(nblock*bsize)]
             value = self.vec.getValues(index)
             self.assertEqual(bvalue, list(value))
 
@@ -125,17 +125,17 @@ class BaseTestVec(object):
         self.vec.set(1)
         arr0 = self.vec.getArray().copy()
         self.assertEqual(arr0.sum(), self.vec.getLocalSize())
-        self.vec.getArray(arr0)
+        arr0 = self.vec.getArray().copy()
         self.vec.setRandom()
         arr1 = self.vec.getArray().copy()
         self.vec.setArray(arr1)
-        self.vec.getArray(arr1)
+        arr1 = self.vec.getArray().copy()
         arr2 = self.vec.getArray().copy()
         self.assertTrue((arr1 == arr2).all())
         import numpy
         refs = self.vec.getRefCount()
         arr3 = numpy.asarray(self.vec)
-        self.assertEqual(self.vec.getRefCount(), refs)
+        self.assertEqual(self.vec.getRefCount(), refs+1)
         self.assertTrue((arr1 == arr3).all())
         arr3[:] = 0
         self.assertAlmostEqual(abs(self.vec.sum()), 0)
@@ -160,8 +160,6 @@ class BaseTestVec(object):
     def testSetOption(self):
         opt1 = PETSc.Vec.Option.IGNORE_OFF_PROC_ENTRIES
         opt2 = PETSc.Vec.Option.IGNORE_NEGATIVE_INDICES
-        version = PETSc.Sys.getVersion()
-        if version < (2,3,3): opt2 = opt1
         for opt in [opt1, opt2]*2:
             for flag in [True,False]*2:
                 self.vec.setOption(opt,flag)
@@ -190,6 +188,16 @@ class BaseTestVec(object):
         w2, v2 = w[e-1], v[e-1]
         self.assertEqual(w1, v1)
         self.assertEqual(w2, v2)
+
+    def testMAXPY(self):
+        y = self.vec
+        y.set(1)
+        x = [y.copy() for _ in range(3)]
+        a = [1]*len(x)
+        y.maxpy(a, x)
+        z = y.duplicate()
+        z.set(len(x)+1)
+        assert (y.equal(z))
 
 
 # --------------------------------------------------------------------
