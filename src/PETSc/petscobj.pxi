@@ -2,7 +2,7 @@
 
 cdef extern from "petsc.h" nogil:
 
-    ctypedef int PetscCookie
+    ctypedef int PetscClassId
 
     int PetscObjectView(PetscObject,PetscViewer)
     int PetscObjectDestroy(PetscObject)
@@ -15,7 +15,7 @@ cdef extern from "petsc.h" nogil:
     int PetscObjectSetFromOptions(PetscObject)
 
     int PetscObjectGetComm(PetscObject,MPI_Comm*)
-    int PetscObjectGetCookie(PetscObject,PetscCookie*)
+    int PetscObjectGetClassId(PetscObject,PetscClassId*)
     int PetscObjectGetType(PetscObject,char*[])
     int PetscObjectGetClassName(PetscObject,char*[])
     int PetscObjectSetName(PetscObject,char[])
@@ -63,22 +63,6 @@ cdef inline int PetscIncref(PetscObject obj):
 cdef inline int PetscDecref(PetscObject obj):
     if obj != NULL:
         return PetscObjectDereference(obj)
-    return 0
-
-# --------------------------------------------------------------------
-
-cdef inline object Object_getDict(PetscObject o):
-    cdef void *dct = NULL
-    CHKERR( PetscObjectGetPyDict(o, PETSC_TRUE, &dct) )
-    return <object> dct
-
-cdef inline object Object_getAttr(PetscObject o, char name[]):
-    cdef void *attr = NULL
-    CHKERR( PetscObjectGetPyObj(o, name, &attr) )
-    return <object> attr
-
-cdef inline int Object_setAttr(PetscObject o, char name[], object attr) except -1:
-    CHKERR( PetscObjectSetPyObj(o, name, <void*>attr) )
     return 0
 
 # --------------------------------------------------------------------
