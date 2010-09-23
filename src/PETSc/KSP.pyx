@@ -1,34 +1,34 @@
 # --------------------------------------------------------------------
 
 class KSPType(object):
-    RICHARDSON = KSPRICHARDSON
-    CHEBYCHEV  = KSPCHEBYCHEV
-    CG         = KSPCG
-    CGNE       = KSPCGNE
-    NASH       = KSPNASH
-    STCG       = KSPSTCG
-    GLTR       = KSPGLTR
-    GMRES      = KSPGMRES
-    FGMRES     = KSPFGMRES
-    LGMRES     = KSPLGMRES
-    TCQMR      = KSPTCQMR
-    BCGS       = KSPBCGS
-    IBCGS      = KSPIBCGS
-    BCGSL      = KSPBCGSL
-    CGS        = KSPCGS
-    TFQMR      = KSPTFQMR
-    CR         = KSPCR
-    LSQR       = KSPLSQR
-    PREONLY    = KSPPREONLY
-    QCG        = KSPQCG
-    BICG       = KSPBICG
-    MINRES     = KSPMINRES
-    SYMMLQ     = KSPSYMMLQ
-    LCD        = KSPLCD
-    BROYDEN    = KSPBROYDEN
-    GCR        = KSPGCR
+    RICHARDSON = S_(KSPRICHARDSON)
+    CHEBYCHEV  = S_(KSPCHEBYCHEV)
+    CG         = S_(KSPCG)
+    CGNE       = S_(KSPCGNE)
+    NASH       = S_(KSPNASH)
+    STCG       = S_(KSPSTCG)
+    GLTR       = S_(KSPGLTR)
+    GMRES      = S_(KSPGMRES)
+    FGMRES     = S_(KSPFGMRES)
+    LGMRES     = S_(KSPLGMRES)
+    TCQMR      = S_(KSPTCQMR)
+    BCGS       = S_(KSPBCGS)
+    IBCGS      = S_(KSPIBCGS)
+    BCGSL      = S_(KSPBCGSL)
+    CGS        = S_(KSPCGS)
+    TFQMR      = S_(KSPTFQMR)
+    CR         = S_(KSPCR)
+    LSQR       = S_(KSPLSQR)
+    PREONLY    = S_(KSPPREONLY)
+    QCG        = S_(KSPQCG)
+    BICG       = S_(KSPBICG)
+    MINRES     = S_(KSPMINRES)
+    SYMMLQ     = S_(KSPSYMMLQ)
+    LCD        = S_(KSPLCD)
+    BROYDEN    = S_(KSPBROYDEN)
+    GCR        = S_(KSPGCR)
     #
-    PYTHON = KSPPYTHON
+    PYTHON = S_(KSPPYTHON)
 
 class KSPNormType(object):
     # native
@@ -104,20 +104,24 @@ cdef class KSP(Object):
         return self
 
     def setType(self, ksp_type):
-        CHKERR( KSPSetType(self.ksp, str2cp(ksp_type)) )
+        cdef const_char *cval = NULL
+        ksp_type = str2bytes(ksp_type, &cval)
+        CHKERR( KSPSetType(self.ksp, cval) )
 
     def getType(self):
-        cdef PetscKSPType ksp_type = NULL
-        CHKERR( KSPGetType(self.ksp, &ksp_type) )
-        return cp2str(ksp_type)
+        cdef const_char *cval = NULL
+        CHKERR( KSPGetType(self.ksp, &cval) )
+        return bytes2str(cval)
 
     def setOptionsPrefix(self, prefix):
-        CHKERR( KSPSetOptionsPrefix(self.ksp, str2cp(prefix)) )
+        cdef const_char *cval = NULL
+        prefix = str2bytes(prefix, &cval)
+        CHKERR( KSPSetOptionsPrefix(self.ksp, cval) )
 
     def getOptionsPrefix(self):
-        cdef const_char_p prefix = NULL
-        CHKERR( KSPGetOptionsPrefix(self.ksp, &prefix) )
-        return cp2str(prefix)
+        cdef const_char *cval = NULL
+        CHKERR( KSPGetOptionsPrefix(self.ksp, &cval) )
+        return bytes2str(cval)
 
     def setFromOptions(self):
         CHKERR( KSPSetFromOptions(self.ksp) )
@@ -125,10 +129,10 @@ cdef class KSP(Object):
     # --- xxx ---
 
     def setAppCtx(self, appctx):
-        Object_setAttr(<PetscObject>self.ksp, '__appctx__', appctx)
+        self.set_attr('__appctx__', appctx)
 
     def getAppCtx(self):
-        return Object_getAttr(<PetscObject>self.ksp, '__appctx__')
+        return self.get_attr('__appctx__')
 
     # --- xxx ---
 
@@ -167,11 +171,11 @@ cdef class KSP(Object):
         return pc
 
     def setPCSide(self, side):
-        CHKERR( KSPSetPreconditionerSide(self.ksp, side) )
+        CHKERR( KSPSetPCSide(self.ksp, side) )
 
     def getPCSide(self):
         cdef PetscPCSide side = PC_LEFT
-        CHKERR( KSPGetPreconditionerSide(self.ksp, &side) )
+        CHKERR( KSPGetPCSide(self.ksp, &side) )
         return side
 
     def setNormType(self, normtype):
@@ -199,8 +203,8 @@ cdef class KSP(Object):
         cdef bint L = left is not None
         cdef PetscInt i=0, nr=0, nl=0
         cdef PetscVec *vr=NULL, *vl=NULL
-        if R: nr = right
-        if L: nl = left
+        if R: nr = asInt(right)
+        if L: nl = asInt(left)
         cdef object vecsr = [] if R else None
         cdef object vecsl = [] if L else None
         CHKERR( KSPGetVecs(self.ksp, nr, &vr, nl, &vr) )
@@ -229,24 +233,42 @@ cdef class KSP(Object):
         if atol   is not None: catol   = asReal(atol)
         if divtol is not None: cdivtol = asReal(divtol)
         cdef PetscInt cmaxits = PETSC_DEFAULT
-        if max_it is not None: cmaxits = max_it
+        if max_it is not None: cmaxits = asInt(max_it)
         CHKERR( KSPSetTolerances(self.ksp, crtol, catol, cdivtol, cmaxits) )
 
     def getTolerances(self):
         cdef PetscReal crtol, catol, cdivtol
         cdef PetscInt cmaxits
         CHKERR( KSPGetTolerances(self.ksp, &crtol, &catol, &cdivtol, &cmaxits) )
-        return (toReal(crtol), toReal(catol), toReal(cdivtol), cmaxits)
+        return (toReal(crtol), toReal(catol), toReal(cdivtol), toInt(cmaxits))
 
-    def setConvergenceTest(self, converged, *args, **kargs):
-        if converged is None: KSP_setConverged(self.ksp, None)
-        else: KSP_setConverged(self.ksp, (converged, args, kargs))
+    def setConvergenceTest(self, converged, args=None, kargs=None):
+        cdef PetscKSPNormType normtype = KSP_NORM_NO
+        cdef void* cctx = NULL
+        if converged is not None:
+            CHKERR( KSPSetConvergenceTest(
+                    self.ksp, KSP_Converged, NULL, NULL) )
+            if args is None: args = ()
+            if kargs is None: kargs = {}
+            self.set_attr('__converged__', (converged, args, kargs))
+        else:
+            CHKERR( KSPGetNormType(self.ksp, &normtype) )
+            if normtype != KSP_NORM_NO:
+                CHKERR( KSPDefaultConvergedCreate(&cctx) )
+                CHKERR( KSPSetConvergenceTest(
+                        self.ksp, KSPDefaultConverged,
+                        cctx, KSPDefaultConvergedDestroy) )
+            else:
+                CHKERR( KSPSetConvergenceTest(
+                        self.ksp, KSPSkipConverged,
+                        NULL, NULL) )
+            self.set_attr('__converged__', None)
 
     def getConvergenceTest(self):
-        return KSP_getConverged(self.ksp)
+        return self.get_attr('__converged__')
 
     def callConvergenceTest(self, its, rnorm):
-        cdef PetscInt  ival = its
+        cdef PetscInt  ival = asInt(its)
         cdef PetscReal rval = asReal(rnorm)
         cdef PetscKSPConvergedReason reason = KSP_CONVERGED_ITERATING
         CHKERR( KSPConvergenceTestCall(self.ksp, ival, rval, &reason) )
@@ -257,11 +279,11 @@ cdef class KSP(Object):
         cdef PetscInt   size = 10000
         cdef PetscTruth flag = PETSC_FALSE
         if   length is True:     pass
-        elif length is not None: size = length
+        elif length is not None: size = asInt(length)
         if size < 0: size = 10000
         if reset: flag = PETSC_TRUE
-        cdef ndarray hist = oarray_r(empty_r(size), NULL, &data)
-        Object_setAttr(<PetscObject>self.ksp, '__history__', hist)
+        cdef object hist = oarray_r(empty_r(size), NULL, &data)
+        self.set_attr('__history__', hist)
         CHKERR( KSPSetResidualHistory(self.ksp, data, size, flag) )
 
     def getConvergenceHistory(self):
@@ -271,25 +293,32 @@ cdef class KSP(Object):
         return array_r(size, data)
 
     def logConvergenceHistory(self, its, rnorm):
-        cdef PetscInt  ival = its
+        cdef PetscInt  ival = asInt(its)
         cdef PetscReal rval = asReal(rnorm)
-        CHKERR( KSPLogConvergenceHistory(self.ksp, its, rval) )
+        CHKERR( KSPLogConvergenceHistory(self.ksp, ival, rval) )
 
-    def setMonitor(self, monitor, *args, **kargs):
-        if monitor is None: KSP_setMonitor(self.ksp, None)
-        else: KSP_setMonitor(self.ksp, (monitor, args, kargs))
+    def setMonitor(self, monitor, args=None, kargs=None):
+        cdef object monitorlist = None
+        if monitor is not None:
+            CHKERR( KSPMonitorSet(self.ksp, KSP_Monitor, NULL, NULL) )
+            monitorlist = self.get_attr('__monitor__')
+            if monitorlist is None: monitorlist = []
+            if args is None: args = ()
+            if kargs is None: kargs = {}
+            monitorlist.append((monitor, args, kargs))
+        self.set_attr('__monitor__', monitorlist)
 
     def getMonitor(self):
-        return KSP_getMonitor(self.ksp)
+        return self.get_attr('__monitor__')
 
     def callMonitor(self, its, rnorm):
-        cdef PetscInt  ival = its
+        cdef PetscInt  ival = asInt(its)
         cdef PetscReal rval = asReal(rnorm)
         CHKERR( KSPMonitorCall(self.ksp, ival, rval) )
 
     def cancelMonitor(self):
         CHKERR( KSPMonitorCancel(self.ksp) )
-        KSP_delMonitor(self.ksp)
+        self.set_attr('__monitor__', None)
 
     # --- xxx ---
 
@@ -341,13 +370,13 @@ cdef class KSP(Object):
         CHKERR( KSPSolveTranspose(self.ksp, b.vec, x.vec) )
 
     def setIterationNumber(self, its):
-        cdef PetscInt ival = its
+        cdef PetscInt ival = asInt(its)
         CHKERR( KSPSetIterationNumber(self.ksp, ival) )
 
     def getIterationNumber(self):
         cdef PetscInt ival = 0
         CHKERR( KSPGetIterationNumber(self.ksp, &ival) )
-        return ival
+        return toInt(ival)
 
     def setResidualNorm(self, rnorm):
         cdef PetscReal rval = asReal(rnorm)
@@ -388,7 +417,9 @@ cdef class KSP(Object):
         else: return <object> context
 
     def setPythonType(self, py_type):
-        CHKERR( KSPPythonSetType(self.ksp, str2cp(py_type)) )
+        cdef const_char *cval = NULL
+        py_type = str2bytes(py_type, &cval)
+        CHKERR( KSPPythonSetType(self.ksp, cval) )
 
     # --- application context ---
 
