@@ -1,6 +1,6 @@
 /* -------------------------------------------------------------------------- */
 
-#include "src/inline/python.h"
+#include "python_core.h"
 #include "private/matimpl.h"
 
 /* -------------------------------------------------------------------------- */
@@ -62,7 +62,7 @@ typedef struct {
 /**/
 
 #define MAT_PYTHON_SETERRSUP(mat, PyMethod)                             \
-  SETERRQ1(PETSC_ERR_SUP,"method %s() not implemented",PyMethod);       \
+  PETSC_PYTHON_NOTIMPLEMENTED(mat, PyMethod);                           \
   PetscFunctionReturn(PETSC_ERR_SUP)                                    \
 /**/
 
@@ -120,7 +120,7 @@ static PetscErrorCode MatDestroy_Python(Mat mat)
     MAT_PYTHON_CALL_NOARGS(mat, "destroy");
     py->self = NULL; Py_DecRef(self);
   }
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscFree(mat->data);CHKERRQ(ierr);
   ierr = PetscObjectChangeTypeName((PetscObject)mat,0);CHKERRQ(ierr);
   ierr = PetscObjectComposeFunction((PetscObject)mat,"MatPythonSetType_C",
@@ -157,8 +157,8 @@ static PetscErrorCode MatView_Python(Mat mat,PetscViewer viewer)
   PetscTruth     isascii,isstring;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_ASCII,&isascii);CHKERRQ(ierr);
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_STRING,&isstring);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&isascii);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERSTRING,&isstring);CHKERRQ(ierr);
   if (isascii) {
     const char* pyname = py->pyname  ? py->pyname  : "no yet set";
     ierr = PetscViewerASCIIPrintf(viewer,"  Python: %s\n", pyname);CHKERRQ(ierr);
@@ -185,47 +185,27 @@ static PetscErrorCode MatSetOption_Python(Mat mat,MatOption op,PetscTruth flag)
   PetscFunctionReturn(0);
 }
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
-static PetscErrorCode MatSetOption_Python_old(Mat mat,MatOption op)
-{ return MatSetOption_Python(mat,op,PETSC_TRUE); }
-#define MatSetOption_Python MatSetOption_Python_old
-#endif
-
-#if PETSC_VERSION_(2,3,2)
+#if PETSC_VERSION_(3,0,0)
 typedef PetscMap* PetscLayout;
-#define PetscGetLayout(o, m) (&(o)->m)
-#define PetscSetUpLayout(o, m) PetscMapInitialize((o)->comm,&(o)->m)
-#elif PETSC_VERSION_(2,3,3)
-typedef PetscMap* PetscLayout;
-#define PetscGetLayout(o, m) (&(o)->m)
-#define PetscSetUpLayout(o, m) PetscMapSetUp(&(o)->m)
-#elif PETSC_VERSION_(3,0,0)
-typedef PetscMap* PetscLayout;
-#define PetscGetLayout(o, m) ((o)->m)
-#define PetscSetUpLayout(o, m) PetscMapSetUp((o)->m)
-#else
-#define PetscGetLayout(o, m) ((o)->m)
-#define PetscSetUpLayout(o, m) PetscLayoutSetUp((o)->m)
-#endif
-
-#if PETSC_VERSION_(2,3,2)
-#define PetscLayoutSetBlockSize(map,bs) ((map)->bs=(bs),0)
-#elif PETSC_VERSION_(2,3,3) || PETSC_VERSION_(3,0,0)
-#define PetscLayoutSetBlockSize(map,bs) PetscMapSetBlockSize(map,bs)
+#define PetscLayoutSetUp PetscMapSetUp
+EXTERN PetscErrorCode PETSCVEC_DLLEXPORT 
+PetscMapSetBlockSize(PetscMap*,PetscInt);
+#define PetscLayoutSetBlockSize PetscMapSetBlockSize
+EXTERN PetscErrorCode PETSCVEC_DLLEXPORT 
+PetscMapGetBlockSize(PetscMap*,PetscInt*);
+#define PetscLayoutGetBlockSize PetscMapGetBlockSize
 #endif
 
 #undef __FUNCT__
 #define __FUNCT__ "MatSetOption_Python"
 static PetscErrorCode MatSetBlockSize_Python(Mat mat, PetscInt bs)
 {
-  PetscLayout    rmap = PetscGetLayout(mat,rmap);
-  PetscLayout    cmap = PetscGetLayout(mat,cmap);
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  ierr = PetscLayoutSetBlockSize(rmap,bs);CHKERRQ(ierr);
-  ierr = PetscLayoutSetBlockSize(cmap,bs);CHKERRQ(ierr);
-  ierr = PetscSetUpLayout(mat,rmap);CHKERRQ(ierr);
-  ierr = PetscSetUpLayout(mat,cmap);CHKERRQ(ierr);
+  ierr = PetscLayoutSetBlockSize(mat->rmap,bs);CHKERRQ(ierr);
+  ierr = PetscLayoutSetBlockSize(mat->cmap,bs);CHKERRQ(ierr);
+  ierr = PetscLayoutSetUp(mat->rmap);CHKERRQ(ierr);
+  ierr = PetscLayoutSetUp(mat->cmap);CHKERRQ(ierr);
   PetscFunctionReturn(0);
 }
 
@@ -234,17 +214,19 @@ static PetscErrorCode MatSetBlockSize_Python(Mat mat, PetscInt bs)
 static PetscErrorCode MatSetUpPreallocation_Python(Mat mat)
 {
   Mat_Py         *py = (Mat_Py *) mat->data;
-  PetscLayout    rmap = PetscGetLayout(mat,rmap);
-  PetscLayout    cmap = PetscGetLayout(mat,cmap);
+  PetscInt       bs;
   PetscErrorCode ierr;
   PetscFunctionBegin;
   /* MatDestroy() calls MatPreallocated() !!! */
   if (!Py_IsInitialized()) PetscFunctionReturn(0);
-  /* setup row and columns maps */
-  if (rmap->bs == -1) rmap->bs = 1;
-  if (cmap->bs == -1) cmap->bs = 1;
-  ierr = PetscSetUpLayout(mat,rmap);CHKERRQ(ierr);
-  ierr = PetscSetUpLayout(mat,cmap);CHKERRQ(ierr);
+  /* setup row layout */
+  ierr = PetscLayoutGetBlockSize(mat->rmap,&bs);CHKERRQ(ierr);
+  if (bs == -1) { ierr = PetscLayoutSetBlockSize(mat->rmap,1);CHKERRQ(ierr); }
+  ierr = PetscLayoutSetUp(mat->rmap);CHKERRQ(ierr);
+  /* setup column layout */
+  ierr = PetscLayoutGetBlockSize(mat->cmap,&bs);CHKERRQ(ierr);
+  if (bs == -1) { ierr = PetscLayoutSetBlockSize(mat->cmap,1);CHKERRQ(ierr); }
+  ierr = PetscLayoutSetUp(mat->cmap);CHKERRQ(ierr);
   /* try to load Python code if not yet done */
   if (py->self == NULL || py->self == Py_None) {
     char       pyname[2*PETSC_MAX_PATH_LEN+3];
@@ -255,9 +237,10 @@ static PetscErrorCode MatSetUpPreallocation_Python(Mat mat)
     if (flag) { ierr = MatPythonSetType_PYTHON(mat,pyname);CHKERRQ(ierr); }
   }
   if (!py->self) {
-    SETERRQ(PETSC_ERR_ARG_WRONGSTATE,"Python context not set, call one of \n"
-            " * MatPythonSetType(mat,\"[package.]module.class\")\n"
-            " * MatSetFromOptions(mat) and pass option -mat_python_type [package.]module.class");
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE,
+             "Python context not set, call one of \n"
+             " * MatPythonSetType(mat,\"[package.]module.class\")\n"
+             " * MatSetFromOptions(mat) and pass option -mat_python_type [package.]module.class");
   }
   /* */
   MAT_PYTHON_CALL_MATARG(mat, "setUp");
@@ -587,7 +570,7 @@ static PetscErrorCode MatGetDiagonal_Python(Mat mat,Vec v)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "MatGetDiagonal_Python"
+#define __FUNCT__ "MatDiagonalSet_Python"
 static PetscErrorCode MatDiagonalSet_Python(Mat mat,Vec v,InsertMode im)
 {
   Mat_Py *py = (Mat_Py *) mat->data;
@@ -659,10 +642,6 @@ static PetscErrorCode MatConjugate_Python(Mat mat)
 
 /* -------------------------------------------------------------------------- */
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
-#define MAT_FACTOR_NONE 0
-#endif
-
 /*MC
    MATPYTHON - .
 
@@ -682,7 +661,7 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatCreate_Python(Mat mat)
   PetscErrorCode ierr;
   PetscFunctionBegin;
 
-  ierr = Petsc4PyInitialize();CHKERRQ(ierr);
+  ierr = PetscPythonImportPetsc4Py();CHKERRQ(ierr);
 
   ierr = PetscNew(Mat_Py,&py);CHKERRQ(ierr);
   ierr = PetscLogObjectMemory(mat,sizeof(Mat_Py));CHKERRQ(ierr);
@@ -729,7 +708,6 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatCreate_Python(Mat mat)
   mat->ops->imaginarypart        = MatImaginaryPart_Python;
   mat->ops->conjugate            = MatConjugate_Python;
 
-  mat->factor       = MAT_FACTOR_NONE;
   mat->assembled    = PETSC_TRUE;
   mat->preallocated = PETSC_FALSE;
 
@@ -770,7 +748,7 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatPythonGetContext(Mat mat,void **ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(mat,MAT_COOKIE,1);
+  PetscValidHeaderSpecific(mat,MAT_CLASSID,1);
   PetscValidPointer(ctx,2);
   *ctx = NULL;
   ierr = PetscTypeCompare((PetscObject)mat,MATPYTHON,&ispython);CHKERRQ(ierr);
@@ -804,7 +782,7 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatPythonSetContext(Mat mat,void *ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(mat,MAT_COOKIE,1);
+  PetscValidHeaderSpecific(mat,MAT_CLASSID,1);
   if (ctx) PetscValidPointer(ctx,2);
   ierr = PetscTypeCompare((PetscObject)mat,MATPYTHON,&ispython);CHKERRQ(ierr);
   if (!ispython) PetscFunctionReturn(0);
@@ -817,7 +795,7 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatPythonSetContext(Mat mat,void *ctx)
   old = py->self; py->self = NULL; Py_DecRef(old);
   /* set current Python context in the Mat object  */
   py->self = self; Py_IncRef(py->self);
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscPythonGetFullName(py->self,&py->pyname);CHKERRQ(ierr);
   MAT_PYTHON_CALL_MATARG(mat, "create");
   PetscFunctionReturn(0);
@@ -825,7 +803,7 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatPythonSetContext(Mat mat,void *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
+#if 0
 
 PETSC_EXTERN_CXX_BEGIN
 EXTERN PetscErrorCode PETSCMAT_DLLEXPORT MatPythonSetType(Mat,const char[]);
@@ -856,7 +834,7 @@ PetscErrorCode PETSCMAT_DLLEXPORT MatPythonSetType(Mat mat,const char pyname[])
   PetscErrorCode (*f)(Mat, const char[]) = 0;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(mat,MAT_COOKIE,1);
+  PetscValidHeaderSpecific(mat,MAT_CLASSID,1);
   PetscValidCharPointer(pyname,2);
   ierr = PetscObjectQueryFunction((PetscObject)mat,"MatPythonSetType_C",
                                   (PetscVoidFunction*)&f);CHKERRQ(ierr);

@@ -1,3 +1,5 @@
+# --------------------------------------------------------------------
+
 cdef extern from "petscda.h" nogil:
 
     ctypedef enum PetscDAStencilType "DAStencilType":
@@ -94,6 +96,7 @@ cdef extern from "petscda.h" nogil:
     #int DASetFieldName(PetscDA,PetscInt,const_char[])
     #int DAGetFieldName(PetscDA,PetscInt,char**)
 
+# --------------------------------------------------------------------
 
 cdef inline int DAGetDim(PetscDA da, PetscInt *dim) nogil:
      return DAGetInfo(da, dim,
@@ -101,3 +104,151 @@ cdef inline int DAGetDim(PetscDA da, PetscInt *dim) nogil:
                       NULL, NULL, NULL,
                       NULL, NULL,
                       NULL, NULL)
+
+cdef inline PetscInt asDims(dims,
+                            PetscInt *_M, 
+                            PetscInt *_N, 
+                            PetscInt *_P) except -1:
+    cdef PetscInt ndim = len(dims)
+    cdef object M, N, P
+    if ndim == 1: 
+        M, = dims
+    elif ndim == 2: 
+        M, N = dims
+    elif ndim == 3: 
+        M, N, P = dims
+    _M[0] = _N[0] = _P[0] = PETSC_DECIDE
+    if ndim >= 1: _M[0] = asInt(M)
+    if ndim >= 2: _N[0] = asInt(N)
+    if ndim >= 3: _P[0] = asInt(P)
+    return ndim
+
+cdef inline tuple toDims(PetscInt dim,
+                         PetscInt M,
+                         PetscInt N, 
+                         PetscInt P):
+        if dim == 0:
+            return ()
+        elif dim == 1:
+            return (toInt(M),)
+        elif dim == 2:
+            return (toInt(M), toInt(N))
+        else:
+            return (toInt(M), toInt(N), toInt(P))
+
+# --------------------------------------------------------------------
+
+cdef class _DA_Vec_array(object):
+
+    cdef _Vec_buffer vecbuf
+    cdef readonly tuple starts, sizes
+    cdef tuple shape, strides
+    cdef readonly ndarray array
+
+    def __cinit__(self, DA da not None, Vec vec not None):
+        #
+        cdef PetscInt dim, dof
+        CHKERR( DAGetInfo(da.da,
+                          &dim, NULL, NULL, NULL, NULL, NULL, NULL,
+                          &dof, NULL, NULL, NULL) )
+        cdef PetscInt lxs, lys, lzs, lxm, lym, lzm
+        CHKERR( DAGetCorners(da.da,
+                             &lxs, &lys, &lzs,
+                             &lxm, &lym, &lzm) )
+        cdef PetscInt gxs, gys, gzs, gxm, gym, gzm
+        CHKERR( DAGetGhostCorners(da.da,
+                                  &gxs, &gys, &gzs,
+                                  &gxm, &gym, &gzm) )
+        #
+        cdef PetscInt n
+        CHKERR( VecGetLocalSize(vec.vec, &n) )
+        cdef PetscInt xs, ys, zs, xm, ym, zm
+        if (n == lxm*lym*lzm*dof):
+            xs, ys, zs = lxs, lys, lzs
+            xm, ym, zm = lxm, lym, lzm
+        elif (n == gxm*gym*gzm*dof):
+            xs, ys, zs = gxs, gys, gzs
+            xm, ym, zm = gxm, gym, gzm
+        else:
+            raise ValueError(
+                "Vector local size %d is not compatible with DA local sizes %s"
+                % (<Py_ssize_t>n, toDims(dim, lxm, lym, lzm)))
+        #
+        cdef tuple starts = toDims(dim, xs, ys, zs)
+        cdef tuple sizes  = toDims(dim, xm, ym, zm)
+        cdef PetscInt k = sizeof(PetscScalar)
+        cdef tuple shape   = toDims(dim, xm, ym, zm)
+        cdef tuple strides = toDims(dim, k*1, k*xm, k*xm*ym)
+        if dof > 1:
+            shape   += (<Py_ssize_t>dof,)
+            strides += (<Py_ssize_t>(k*xm*ym*zm),)
+        #
+        self.vecbuf = _Vec_buffer(vec)
+        self.starts = starts
+        self.sizes = sizes
+        self.shape = shape
+        self.strides = strides
+
+    cdef int acquire(self) except -1:
+        self.vecbuf.acquire()
+        if self.array is None:
+            self.array = asarray(self.vecbuf)
+            self.array.shape = self.shape
+            self.array.strides = self.strides
+        return 0
+
+    cdef int release(self) except -1:
+        self.vecbuf.release()
+        self.array = None
+        return 0
+
+    #
+
+    def __getitem__(self, index):
+        self.acquire()
+        index = adjust_index_exp(self.starts, index)
+        return self.array[index]
+
+    def __setitem__(self, index, value):
+        self.acquire()
+        index = adjust_index_exp(self.starts, index)
+        self.array[index] = value
+
+    # 'with' statement (PEP 343)
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, t, v, tb):
+        self.release()
+        return None
+
+
+cdef object adjust_index_exp(object starts, object index):
+     if not isinstance(index, tuple):
+         return adjust_index(starts[0], index)
+     index = list(index)
+     for i, start in enumerate(starts):
+         index[i] = adjust_index(start, index[i])
+     index = tuple(index)
+     return index
+
+cdef object adjust_index(object lbound, object index):
+    if index is None:
+        return index
+    if index is Ellipsis:
+        return index
+    if isinstance(index, slice):
+        start = index.start
+        stop  = index.stop
+        step  = index.step
+        if start is not None: start -= lbound
+        if stop  is not None: stop  -= lbound
+        return slice(start, stop, step)
+    try:
+        return index - lbound
+    except TypeError:
+        return index
+
+# --------------------------------------------------------------------

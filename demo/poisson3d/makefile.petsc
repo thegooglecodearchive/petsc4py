@@ -1,21 +1,23 @@
 # -*- makefile -*-
 
-CFLAGS	 =
-CPPFLAGS = 
-F90FLAGS =
-LOCDIR   = 
+EXECUTABLE=poisson3d
 
+.PHONY:all
+all: ${EXECUTABLE}.exe
 
-ALL: poisson3d
+SOURCEC=${EXECUTABLE}.c
+OBJSC=${EXECUTABLE}.o
 
-poisson3d: poisson3d.o
-	mpif90 ${F90FLAGS} -c -o del2lib.o del2lib.f90
-	-${CLINKER} -o $@ $< del2lib.o ${PETSC_KSP_LIB}
-	${RM} poisson3d.o del2lib.o
+SOURCEF=del2lib.f90
+OBJSF=del2lib.o
 
-lclean:
-	${RM} poisson3d solvesys
+SOURCEH=del2mat.h
 
+${EXECUTABLE}.exe: ${SOURCEC} ${SOURCEF} ${SOURCEH}
+	-${PETSC_FCOMPILE}
+	-${PETSC_COMPILE}
+	-${CLINKER} -o $@ ${PETSC_TS_LIB} ${OBJSC} ${OBJSF}
+	-${RM} ${OBJSC} ${OBJSF}
 
 include ${PETSC_DIR}/conf/variables
 include ${PETSC_DIR}/conf/rules

@@ -1,5 +1,3 @@
-#define PETSCTS_DLL
-
 /*
   Code for general, user-defined timestepping with implicit schemes.
 
@@ -11,20 +9,8 @@
 
 /* -------------------------------------------------------------------------- */
 
-#include "src/inline/python.h"
+#include "python_core.h"
 #include "private/tsimpl.h"
-
-/* -------------------------------------------------------------------------- */
-
-/* backward compatibility hacks */
-
-#if PETSC_VERSION_(2,3,2)
-#define SNESGetLinearSolveIterations SNESGetNumberLinearIterations
-#endif
-
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
-#define PetscObjectIncrementTabLevel(A,B,C) 0
-#endif
 
 /* -------------------------------------------------------------------------- */
 
@@ -156,7 +142,7 @@ static PetscErrorCode TSDestroy_Python(TS ts)
   if (py->update)   {ierr = VecDestroy(py->update);CHKERRQ(ierr);}
   if (py->vec_func) {ierr = VecDestroy(py->vec_func);CHKERRQ(ierr);}
   if (py->vec_rhs)  {ierr = VecDestroy(py->vec_rhs);CHKERRQ(ierr);}
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscFree(ts->data);CHKERRQ(ierr);
   ts->data = PETSC_NULL;
   ierr = PetscObjectComposeFunction((PetscObject)ts,"TSPythonSetType_C",
@@ -194,8 +180,8 @@ static PetscErrorCode TSView_Python(TS ts,PetscViewer viewer)
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_ASCII,&isascii);CHKERRQ(ierr);
-  ierr = PetscTypeCompare((PetscObject)viewer,PETSC_VIEWER_STRING,&isstring);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERASCII,&isascii);CHKERRQ(ierr);
+  ierr = PetscTypeCompare((PetscObject)viewer,PETSCVIEWERSTRING,&isstring);CHKERRQ(ierr);
   if (isascii) {
     const char* pyname  = py->pyname ? py->pyname  : "no yet set";
     ierr = PetscViewerASCIIPrintf(viewer,"  Python: %s\n",pyname);CHKERRQ(ierr);
@@ -236,7 +222,7 @@ static PetscErrorCode TSPyFunction(SNES snes,Vec x,Vec f,void *ctx)
 
 static PyObject * TSPyObjToMatStructure(PyObject *value, MatStructure *outflag)
 {
-  MatStructure flag = DIFFERENT_NONZERO_PATTERN;
+  long flag = DIFFERENT_NONZERO_PATTERN;
   if (value == NULL)
     return NULL;
   if (value == Py_None) {
@@ -246,7 +232,7 @@ static PyObject * TSPyObjToMatStructure(PyObject *value, MatStructure *outflag)
   } else if (value == Py_True) {
     flag = DIFFERENT_NONZERO_PATTERN;
   } else if (PyInt_Check(value)) {
-    flag = (MatStructure) PyInt_AsLong(value);
+    flag = PyInt_AsLong(value);
     if (flag < SAME_NONZERO_PATTERN ||
         flag > SUBSET_NONZERO_PATTERN) {
       PyErr_SetString(PyExc_ValueError,
@@ -260,7 +246,7 @@ static PyObject * TSPyObjToMatStructure(PyObject *value, MatStructure *outflag)
                     "or a valid integer value for MatStructure");
     goto fail;
   }
-  *outflag = flag;
+  *outflag = (MatStructure)flag;
   return value;
  fail:
   Py_DecRef(value);
@@ -356,13 +342,6 @@ static PetscErrorCode TSStep_Python(TS ts,PetscReal t,Vec u)
   PetscInt       its=0,lits=0;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
-  if (ts->problem_type == TS_NONLINEAR) {
-    if (!((PetscObject)ts->snes)->type_name) {
-      ierr = SNESSetType(ts->snes,SNESLS);CHKERRQ(ierr);
-    }
-  }
-#endif
   TS_PYTHON_CALL_MAYBE(ts, "step", ("O&dO&",
                                     PyPetscTS_New,  ts,
                                     (double)        t,
@@ -384,7 +363,7 @@ static PetscErrorCode TSStep_Python(TS ts,PetscReal t,Vec u)
     ierr = SNESSolve(ts->snes,py->vec_rhs,u);CHKERRQ(ierr);
   } if (ts->problem_type == TS_LINEAR) {
     MatStructure flag = DIFFERENT_NONZERO_PATTERN;
-    SETERRQ(1, "not yet implemented"); PetscFunctionReturn(1);
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"not yet implemented");
     ierr = KSPSetOperators(ts->ksp,ts->A,ts->B,flag);CHKERRQ(ierr);
     ierr = KSPSolve(ts->ksp,py->vec_rhs,u);CHKERRQ(ierr);
   }
@@ -481,9 +460,9 @@ static PetscErrorCode TSSetUp_Python(TS ts)
   if (ts->problem_type == TS_NONLINEAR) { /* setup nonlinear problem */
     /* nothing to do at this point yet */
   } else if (ts->problem_type == TS_LINEAR) { /* setup linear problem */
-    SETERRQ(PETSC_ERR_SUP,"Only for nonlinear problems");
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Only for nonlinear problems");
   } else {
-    SETERRQ(PETSC_ERR_ARG_OUTOFRANGE,"No such problem type");
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_ARG_OUTOFRANGE,"No such problem type");
   }
   /* create work vector for solution */
   if (py->update == PETSC_NULL) {
@@ -504,7 +483,7 @@ static PetscErrorCode TSSetUp_Python(TS ts)
     ierr = SNESSetFunction(ts->snes,py->vec_func,TSPyFunction,ts);CHKERRQ(ierr);
     ierr = SNESSetJacobian(ts->snes,ts->A,ts->B,TSPyJacobian,ts);CHKERRQ(ierr);
   } else if (ts->problem_type == TS_LINEAR) {  /* setup linear problem */
-    SETERRQ(PETSC_ERR_SUP,"Only for nonlinear problems");
+    SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_SUP,"Only for nonlinear problems");
   }
   /* call user-provided setup function */
   TS_PYTHON_CALL_TSARG(ts, "setUp");
@@ -605,7 +584,7 @@ PetscErrorCode PETSCTS_DLLEXPORT TSCreate_Python(TS ts)
   PetscErrorCode ierr;
   PetscFunctionBegin;
 
-  ierr = Petsc4PyInitialize();CHKERRQ(ierr);
+  ierr = PetscPythonImportPetsc4Py();CHKERRQ(ierr);
 
   ierr = PetscNew(TS_Py,&py);CHKERRQ(ierr);
   ierr = PetscLogObjectMemory(ts,sizeof(TS_Py));CHKERRQ(ierr);
@@ -654,7 +633,7 @@ PetscErrorCode PETSCTS_DLLEXPORT TSCreate_Python(TS ts)
     ierr = PetscLogObjectParent(ts,ts->ksp);CHKERRQ(ierr);
     ierr = PetscObjectIncrementTabLevel((PetscObject)ts->ksp,(PetscObject)ts,1);CHKERRQ(ierr);
     ierr = KSPSetInitialGuessNonzero(ts->ksp,PETSC_TRUE);CHKERRQ(ierr);
-  } else SETERRQ(PETSC_ERR_ARG_OUTOFRANGE,"No such problem type");
+  } else SETERRQQ(PETSC_COMM_SELF,PETSC_ERR_ARG_OUTOFRANGE,"No such problem type");
 
   PetscFunctionReturn(0);
 }
@@ -688,7 +667,7 @@ PetscErrorCode PETSCTS_DLLEXPORT TSPythonGetContext(TS ts,void **ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(ts,TS_COOKIE,1);
+  PetscValidHeaderSpecific(ts,TS_CLASSID,1);
   PetscValidPointer(ctx,2);
   *ctx = NULL;
   ierr = PetscTypeCompare((PetscObject)ts,TSPYTHON,&ispython);CHKERRQ(ierr);
@@ -722,7 +701,7 @@ PetscErrorCode PETSCTS_DLLEXPORT TSPythonSetContext(TS ts,void *ctx)
   PetscTruth     ispython;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(ts,TS_COOKIE,1);
+  PetscValidHeaderSpecific(ts,TS_CLASSID,1);
   if (ctx) PetscValidPointer(ctx,2);
   ierr = PetscTypeCompare((PetscObject)ts,TSPYTHON,&ispython);CHKERRQ(ierr);
   if (!ispython) PetscFunctionReturn(0);
@@ -735,7 +714,7 @@ PetscErrorCode PETSCTS_DLLEXPORT TSPythonSetContext(TS ts,void *ctx)
   old = py->self; py->self = NULL; Py_DecRef(old);
   /* set current Python context in the TS object  */
   py->self = (PyObject *) self; Py_IncRef(py->self);
-  ierr = PetscStrfree(py->pyname);CHKERRQ(ierr);
+  ierr = PetscFree(py->pyname);CHKERRQ(ierr);
   ierr = PetscPythonGetFullName(py->self,&py->pyname);CHKERRQ(ierr);
   TS_PYTHON_CALL_TSARG(ts, "create");
   if (ts->setupcalled) ts->setupcalled = 0;
@@ -744,7 +723,11 @@ PetscErrorCode PETSCTS_DLLEXPORT TSPythonSetContext(TS ts,void *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-#if PETSC_VERSION_(2,3,3) || PETSC_VERSION_(2,3,2)
+#if 0
+
+PETSC_EXTERN_CXX_BEGIN
+EXTERN PetscErrorCode PETSCSNES_DLLEXPORT TSPythonSetType(TS,const char[]);
+PETSC_EXTERN_CXX_END
 
 PETSC_EXTERN_CXX_BEGIN
 EXTERN PetscErrorCode PETSCTS_DLLEXPORT TSPythonSetType(TS,const char[]);
@@ -775,7 +758,7 @@ PetscErrorCode PETSCTS_DLLEXPORT TSPythonSetType(TS ts,const char pyname[])
   PetscErrorCode (*f)(TS, const char[]) = 0;
   PetscErrorCode ierr;
   PetscFunctionBegin;
-  PetscValidHeaderSpecific(ts,TS_COOKIE,1);
+  PetscValidHeaderSpecific(ts,TS_CLASSID,1);
   PetscValidCharPointer(pyname,2);
   ierr = PetscObjectQueryFunction((PetscObject)ts,"TSPythonSetType_C",
                                   (PetscVoidFunction*)&f);CHKERRQ(ierr);
