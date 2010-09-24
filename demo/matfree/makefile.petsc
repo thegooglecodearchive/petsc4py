@@ -1,0 +1,21 @@
+# -*- makefile -*-
+
+EXECUTABLE=matfree
+
+.PHONY:all
+all: ${EXECUTABLE}.exe
+
+SOURCEC=${EXECUTABLE}.c
+OBJSC=${EXECUTABLE}.o
+
+SOURCEF=matfreelib.f90
+OBJSF=matfreelib.o
+
+${EXECUTABLE}.exe: ${SOURCEC} ${SOURCEF}
+	-${PETSC_FCOMPILE}
+	-${PETSC_COMPILE}
+	-${CLINKER} -o $@ ${PETSC_TS_LIB} ${OBJSC} ${OBJSF}
+	-${RM} ${OBJSC} ${OBJSF}
+
+include ${PETSC_DIR}/conf/variables
+include ${PETSC_DIR}/conf/rules
