@@ -17,6 +17,9 @@
 #
 # ------------------------------------------------------------------------
 
+try: range = xrange
+except: pass
+
 import sys, petsc4py
 petsc4py.init(sys.argv)
 
@@ -29,25 +32,23 @@ class Bratu3D(object):
         assert da.getDim() == 3
         self.da = da
         self.lambda_ = lambda_
-        self.localX  = da.createLocalVector()
+        self.localX  = da.createLocalVec()
 
     def formInitGuess(self, snes, X):
         #
-        X.zeroEntries()
-        corners, sizes = self.da.getCorners()
-        x = X[...].reshape(sizes, order='f')
+        x = self.da.getVecArray(X)
         #
         mx, my, mz = self.da.getSizes()
-        hx, hy, hz = [1.0/m for m in [mx, my, mz]]
+        hx, hy, hz = [1.0/(m-1) for m in [mx, my, mz]]
         lambda_ = self.lambda_
         scale = lambda_/(lambda_ + 1.0)
         #
         (xs, xe), (ys, ye), (zs, ze) = self.da.getRanges()
-        for k in xrange(zs, ze):
+        for k in range(zs, ze):
             min_k = min(k,mz-k-1)*hz
-            for j in xrange(ys, ye):
+            for j in range(ys, ye):
                 min_j = min(j,my-j-1)*hy
-                for i in xrange(xs, xe):
+                for i in range(xs, xe):
                     min_i = min(i,mx-i-1)*hx
                     if (i==0    or j==0    or k==0 or
                         i==mx-1 or j==my-1 or k==mz-1):
@@ -61,12 +62,8 @@ class Bratu3D(object):
     def formFunction(self, snes, X, F):
         #
         self.da.globalToLocal(X, self.localX)
-        corners, sizes = self.da.getGhostCorners()
-        x = self.localX[...].reshape(sizes, order='f')
-        #
-        F.zeroEntries()
-        corners, sizes = self.da.getCorners()
-        f = F[...].reshape(sizes, order='f')
+        x = self.da.getVecArray(self.localX)
+        f = self.da.getVecArray(F)
         #
         mx, my, mz = self.da.getSizes()
         hx, hy, hz = [1.0/m for m in [mx, my, mz]]
@@ -77,9 +74,9 @@ class Bratu3D(object):
         lambda_ = self.lambda_
         #
         (xs, xe), (ys, ye), (zs, ze) = self.da.getRanges()
-        for k in xrange(zs, ze):
-            for j in xrange(ys, ye):
-                for i in xrange(xs, xe):
+        for k in range(zs, ze):
+            for j in range(ys, ye):
+                for i in range(xs, xe):
                     if (i==0    or j==0    or k==0 or
                         i==mx-1 or j==my-1 or k==mz-1):
                         f[i, j, k] = x[i, j, k] - 0
@@ -103,18 +100,19 @@ class Bratu3D(object):
         if J != P: J.assemble() # matrix-free operator
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
-
 OptDB = PETSc.Options()
 
-N = OptDB.getInt('N', 16)
+n  = OptDB.getInt('n', 16)
+nx = OptDB.getInt('nx', n)
+ny = OptDB.getInt('nz', n)
+nz = OptDB.getInt('ny', n)
 lambda_ = OptDB.getReal('lambda', 6.0)
-do_plot = OptDB.getBool('plot', False)
 
-da = PETSc.DA().create([N, N, N])
+da = PETSc.DA().create([nx, ny, nz])
 pde = Bratu3D(da, lambda_)
 
 snes = PETSc.SNES().create()
-F = da.createGlobalVector()
+F = da.createGlobalVec()
 snes.setFunction(pde.formFunction, F)
 
 fd = OptDB.getBool('fd', True)
@@ -123,42 +121,44 @@ if mf:
     J = None
     snes.setUseMF()
 else:
-    J = da.createMatrix()
+    J = da.createMat()
     snes.setJacobian(pde.formJacobian, J)
     if fd:
         snes.setUseFD()
 
-X = da.createGlobalVector()
-pde.formInitGuess(None, X)
-
 snes.getKSP().setType('cg')
 snes.setFromOptions()
+
+X = da.createGlobalVec()
+pde.formInitGuess(snes, X)
 snes.solve(None, X)
 
-U = da.createNaturalVector()
+U = da.createNaturalVec()
 da.globalToNatural(X, U)
 
-def plot(da, U):
-    comm = da.getComm()
-    scatter, U0 = PETSc.Scatter.toZero(U)
-    scatter.scatter(U, U0, False, PETSc.Scatter.Mode.FORWARD)
-    rank = comm.getRank()
-    if rank == 0:
-        solution = U0[...]
-        solution = solution.reshape(da.sizes, order='f').copy()
-        try:
-            from matplotlib import pyplot
-            pyplot.contourf(solution[:, :, N//2])
-            pyplot.axis('equal')
-            pyplot.show()
-        except:
-            raise
-            pass
-    comm.barrier()
-    scatter.destroy()
-    U0.destroy()
+if OptDB.getBool('plot_mpl', False):
 
-if do_plot: plot(da, U)
+    def plot_mpl(da, U):
+        comm = da.getComm()
+        rank = comm.getRank()
+        scatter, U0 = PETSc.Scatter.toZero(U)
+        scatter.scatter(U, U0, False, PETSc.Scatter.Mode.FORWARD)
+        if rank == 0:
+            try:
+                from matplotlib import pylab
+            except ImportError:
+                PETSc.Sys.Print("matplotlib not available")
+            else:
+                from numpy import mgrid
+                nx, ny, nz = da.sizes
+                solution = U0[...].reshape(da.sizes, order='f')
+                xx, yy =  mgrid[0:1:1j*nx,0:1:1j*ny]
+                pylab.contourf(xx, yy, solution[:, :, nz//2])
+                pylab.axis('equal')
+                pylab.xlabel('X')
+                pylab.ylabel('Y')
+                pylab.title('Z/2')
+                pylab.show()
+        comm.barrier()
 
-del pde, da, snes
-del F, J, X, U
+    plot_mpl(da, U)

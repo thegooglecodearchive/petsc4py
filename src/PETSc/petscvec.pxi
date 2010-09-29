@@ -33,7 +33,7 @@ cdef extern from "petscvec.h" nogil:
     int VecCreateShared(MPI_Comm,PetscInt,PetscInt,PetscVec*)
     int VecGetType(PetscVec,PetscVecType*)
     int VecSetType(PetscVec,PetscVecType)
-    int VecSetOption(PetscVec,PetscVecOption,PetscTruth)
+    int VecSetOption(PetscVec,PetscVecOption,PetscBool)
     int VecSetSizes(PetscVec,PetscInt,PetscInt)
     int VecGetSize(PetscVec,PetscInt*)
     int VecGetLocalSize(PetscVec,PetscInt*)
@@ -49,9 +49,8 @@ cdef extern from "petscvec.h" nogil:
     int VecPlaceArray(PetscVec,PetscScalar[])
     int VecResetArray(PetscVec)
 
-    int VecEqual(PetscVec,PetscVec,PetscTruth*)
-    int VecLoad(PetscViewer,PetscVecType,PetscVec*)
-    int VecLoadIntoVector(PetscViewer,PetscVec)
+    int VecEqual(PetscVec,PetscVec,PetscBool*)
+    int VecLoad(PetscVec,PetscViewer)
 
     int VecDuplicate(PetscVec,PetscVec*)
     int VecCopy(PetscVec,PetscVec)
@@ -116,10 +115,10 @@ cdef extern from "petscvec.h" nogil:
     int VecMaxPointwiseDivide(PetscVec,PetscVec,PetscReal*)
     int VecShift(PetscVec,PetscScalar)
     int VecReciprocal(PetscVec)
-    int VecPermute(PetscVec,PetscIS,PetscTruth)
+    int VecPermute(PetscVec,PetscIS,PetscBool)
     int VecExp(PetscVec)
     int VecLog(PetscVec)
-    int VecSqrt(PetscVec)
+    int VecSqrtAbs(PetscVec)
     int VecAbs(PetscVec)
 
     int VecStrideMin(PetscVec,PetscInt,PetscInt*,PetscReal*)
@@ -272,22 +271,6 @@ cdef inline int Vec_SplitSizes(MPI_Comm comm,
 
 # --------------------------------------------------------------------
 
-cdef inline int vecset(PetscVec v, object o) except -1:
-    cdef PetscInt na=0, nv=0
-    cdef PetscScalar *va=NULL, *vv=NULL
-    cdef ndarray a = iarray_s(o, &na, &va)
-    if PyArray_NDIM(a) == 0:
-        CHKERR( VecSet(v, va[0]) )
-        return 0
-    CHKERR( VecGetLocalSize(v, &nv) )
-    if na != nv: raise ValueError(
-        "array size %d incompatible " \
-        "with vector local size %d" % (na, nv) )
-    CHKERR( VecGetArray(v, &vv) )
-    CHKERR( PetscMemcpy(vv, va, nv*sizeof(PetscScalar)) )
-    CHKERR( VecRestoreArray(v, &vv) )
-    return 0
-
 ctypedef int VecSetValuesFcn(PetscVec,PetscInt,const_PetscInt[],
                              const_PetscScalar[],PetscInsertMode)
 
@@ -296,18 +279,18 @@ cdef inline int vecsetvalues(PetscVec V,
                              int blocked, int local) except -1:
     # block size
     cdef PetscInt bs=1
-    if blocked: CHKERR( VecGetBlockSize(V, &bs) )
-    if bs < 1: bs = 1
+    if blocked:
+        CHKERR( VecGetBlockSize(V, &bs) )
+        if bs < 1: bs = 1
     # indices and values
-    cdef PetscInt ni=0
-    cdef PetscInt *i=NULL
-    cdef PetscInt nv=0
+    cdef PetscInt ni=0, nv=0
+    cdef PetscInt    *i=NULL
     cdef PetscScalar *v=NULL
     cdef object ai = iarray_i(oi, &ni, &i)
     cdef object av = iarray_s(ov, &nv, &v)
     if ni*bs != nv: raise ValueError(
-        "incompatible array sizes: " \
-        "ni=%d, nv=%d, bs=%d" % (ni, nv, bs) )
+        "incompatible array sizes: ni=%d, nv=%d, bs=%d" %
+        (toInt(ni), toInt(nv), toInt(bs)) )
     # insert mode
     cdef PetscInsertMode addv = insertmode(oim)
     # VecSetValuesXXX function
@@ -322,19 +305,42 @@ cdef inline int vecsetvalues(PetscVec V,
 
 cdef object vecgetvalues(PetscVec vec, object oindices, object values):
     cdef PetscInt ni=0, nv=0
-    cdef PetscInt *i=NULL
+    cdef PetscInt    *i=NULL
     cdef PetscScalar *v=NULL
-    cdef ndarray indices = iarray_i(oindices, &ni, &i)
+    cdef object indices = iarray_i(oindices, &ni, &i)
     if values is None:
         values = empty_s(ni)
         values.shape = indices.shape
     values = oarray_s(values, &nv, &v)
     if (ni != nv): raise ValueError(
-        "incompatible array sizes: ni=%d, nv=%d" % (ni, nv))
+        ("incompatible array sizes: "
+         "ni=%d, nv=%d") % (toInt(ni), toInt(nv)))
     CHKERR( VecGetValues(vec, ni, i, v) )
     return values
 
 # --------------------------------------------------------------------
+
+cdef inline object vec_getarray(Vec self):
+    return asarray(self)
+
+cdef inline int vec_setarray(Vec self, object o) except -1:
+    cdef PetscInt na=0, nv=0, i=0
+    cdef PetscScalar *va=NULL, *vv=NULL
+    cdef ndarray ary = iarray_s(o, &na, &va)
+    CHKERR( VecGetLocalSize(self.vec, &nv) )
+    if (na != nv) and PyArray_NDIM(ary) > 0: raise ValueError(
+        "array size %d incompatible with vector local size %d" %
+        (toInt(na), toInt(nv)) )
+    CHKERR( VecGetArray(self.vec, &vv) )
+    try:
+        if PyArray_NDIM(ary) == 0:
+            for i from 0 <= i < nv:
+                vv[i] = va[0]
+        else:
+            CHKERR( PetscMemcpy(vv, va, nv*sizeof(PetscScalar)) )
+    finally:
+        CHKERR( VecRestoreArray(self.vec, &vv) )
+    return 0
 
 cdef object vec_getitem(Vec self, object i):
     cdef PetscInt N=0
@@ -342,23 +348,137 @@ cdef object vec_getitem(Vec self, object i):
         return asarray(self)
     if isinstance(i, slice):
         CHKERR( VecGetSize(self.vec, &N) )
-        start, stop, stride = i.indices(N)
+        start, stop, stride = i.indices(toInt(N))
         i = arange(start, stop, stride)
     return vecgetvalues(self.vec, i, None)
 
 cdef int vec_setitem(Vec self, object i, object v) except -1:
     cdef PetscInt N=0
     if i is Ellipsis:
-        if isinstance(v, Vec):
-            CHKERR( VecCopy((<Vec>v).vec, self.vec) )
-        else:
-            vecset(self.vec, v)
-        return 0
+        return vec_setarray(self, v)
     if isinstance(i, slice):
         CHKERR( VecGetSize(self.vec, &N) )
-        start, stop, stride = i.indices(N)
+        start, stop, stride = i.indices(toInt(N))
         i = arange(start, stop, stride)
     vecsetvalues(self.vec, i, v, None, 0, 0)
     return 0
+
+# --------------------------------------------------------------------
+
+cdef extern from "pep3118.h":
+    int  PyPetscBuffer_FillInfo(Py_buffer*,
+                                void*,PetscInt,char,
+                                int,int) except -1
+    void PyPetscBuffer_Release(Py_buffer*)
+
+# --------------------------------------------------------------------
+
+cdef class _Vec_buffer:
+
+    cdef PetscVec vec
+    cdef PetscInt size
+    cdef PetscScalar *data
+
+    def __cinit__(self, Vec vec not None):
+        cdef PetscVec v = vec.vec
+        CHKERR( PetscIncref(<PetscObject>v) )
+        self.vec = v
+        self.size = 0
+        self.data = NULL
+
+    def __dealloc__(self):
+        if self.vec != NULL:
+            if self.data != NULL:
+                CHKERR( VecRestoreArray(self.vec, &self.data) )
+            CHKERR( VecDestroy(self.vec) )
+
+    #
+
+    cdef int acquire(self) except -1:
+        if self.vec != NULL and self.data == NULL:
+            CHKERR( VecGetLocalSize(self.vec, &self.size) )
+            CHKERR( VecGetArray(self.vec, &self.data) )
+        return 0
+
+    cdef int release(self) except -1:
+        if self.vec != NULL and self.data != NULL:
+            CHKERR( VecRestoreArray(self.vec, &self.data) )
+            self.size = 0
+            self.data = NULL
+        return 0
+
+    # buffer interface (PEP 3118)
+
+    cdef int acquirebuffer(self, Py_buffer *view, int flags) except -1:
+        self.acquire()
+        PyPetscBuffer_FillInfo(view, <void*>self.data,
+                               self.size, c's', 0, flags)
+        view.obj = self
+        return 0
+
+    cdef int releasebuffer(self, Py_buffer *view) except -1:
+        PyPetscBuffer_Release(view)
+        self.release()
+        return 0
+
+    def __getbuffer__(self, Py_buffer *view, int flags):
+        self.acquirebuffer(view, flags)
+
+    def __releasebuffer__(self, Py_buffer *view):
+        self.releasebuffer(view)
+
+    # 'with' statement (PEP 343)
+
+    cdef object enter(self):
+        self.acquire()
+        return asarray(self)
+
+    cdef object exit(self):
+        self.release()
+        return None
+
+    def __enter__(self):
+        return self.enter()
+
+    def __exit__(self, t, v, tb):
+        return self.exit()
+
+    # buffer interface (legacy)
+
+    cdef Py_ssize_t getbuffer(self, Py_ssize_t idx, void **p) except -1:
+        if idx != 0: raise SystemError(
+            "accessing non-existent buffer segment")
+        if self.vec != NULL:
+            CHKERR( VecGetLocalSize(self.vec, &self.size) )
+        if p != NULL:
+            if self.vec != NULL and self.data == NULL:
+                CHKERR( VecGetArray(self.vec, &self.data) )
+            p[0] = <void*>self.data
+        return <Py_ssize_t> (self.size*sizeof(PetscScalar))
+
+    def __getsegcount__(self, Py_ssize_t *lenp):
+        if lenp != NULL:
+            lenp[0] = self.getbuffer(0, NULL)
+        return 1
+
+    def __getreadbuffer__(self, Py_ssize_t idx, void **p):
+        return self.getbuffer(idx, p)
+
+    def __getwritebuffer__(self, Py_ssize_t idx, void **p):
+        return self.getbuffer(idx, p)
+
+    # NumPy array interface (legacy)
+
+    property __array_interface__:
+        def __get__(self):
+            if self.vec != NULL:
+                CHKERR( VecGetLocalSize(self.vec, &self.size) )
+            cdef object size = toInt(self.size)
+            cdef dtype descr = PyArray_DescrFromType(NPY_PETSC_SCALAR)
+            cdef str typestr = "=%c%d" % (descr.kind, descr.itemsize)
+            return dict(version=3,
+                        data=self,
+                        shape=(size,),
+                        typestr=typestr)
 
 # --------------------------------------------------------------------

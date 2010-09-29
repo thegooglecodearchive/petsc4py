@@ -12,14 +12,25 @@ cdef extern from "petscsys.h" nogil:
     int PetscInitialize(int*,char***,char[],char[])
     int PetscInitializeNoArguments()
     int PetscFinalize()
-    PetscTruth PetscInitializeCalled
-    PetscTruth PetscFinalizeCalled
+    PetscBool PetscInitializeCalled
+    PetscBool PetscFinalizeCalled
+
+    ctypedef enum PetscErrorType:
+        PETSC_ERROR_INITIAL
+        PETSC_ERROR_REPEAT
+    ctypedef int PetscEHF(MPI_Comm,
+                          int,char*,char*,char*,
+                          int,PetscErrorType,char*,void*)
+    PetscEHF PetscAttachDebuggerErrorHandler
+    PetscEHF PetscEmacsClientErrorHandler
+    PetscEHF PetscTraceBackErrorHandler
+    PetscEHF PetscMPIAbortErrorHandler
+    PetscEHF PetscAbortErrorHandler
+    PetscEHF PetscIgnoreErrorHandler
+    int PetscPushErrorHandler(PetscEHF*,void*)
+    int PetscPopErrorHandler()
 
     int PetscErrorMessage(int,char*[],char**)
-    ctypedef int PetscTBF(int,char*,char*,char*,int,int,char*,void*)
-    PetscTBF PetscTBEH "PetscTraceBackErrorHandler"
-    int PetscPushErrorHandler(PetscTBF*,void*)
-    int PetscPopErrorHandler()
 
     int PetscSplitOwnership(MPI_Comm,PetscInt*,PetscInt*)
     int PetscSplitOwnershipBlock(MPI_Comm,PetscInt,PetscInt*,PetscInt*)
@@ -32,14 +43,12 @@ cdef extern from "petscsys.h" nogil:
     int PetscSequentialPhaseEnd(MPI_Comm,int)
     int PetscSleep(int)
 
-
-
 cdef inline int Sys_SplitSizes(MPI_Comm comm, object size, object bsize,
                                PetscInt *_b, PetscInt *_n, PetscInt *_N) except -1:
 
     # get block size
     cdef PetscInt bs=PETSC_DECIDE, b=PETSC_DECIDE
-    if bsize is not None: bs = bsize
+    if bsize is not None: bs = asInt(bsize)
     if bs == PETSC_DECIDE: bs = 1
     else: b = bs
     # unpack and get local and global sizes
@@ -49,17 +58,19 @@ cdef inline int Sys_SplitSizes(MPI_Comm comm, object size, object bsize,
         on, oN = size
     except (TypeError, ValueError):
         on = None; oN = size
-    if on is not None: n = on
-    if oN is not None: N = oN
+    if on is not None: n = asInt(on)
+    if oN is not None: N = asInt(oN)
     # check block, local, and and global sizes
     if (bs < 1): raise ValueError(
-        "block size %d must be positive" % bs)
+        "block size %d must be positive" % toInt(bs))
     if n==PETSC_DECIDE and N==PETSC_DECIDE: raise ValueError(
         "local and global sizes cannot be both 'DECIDE'")
     if (n > 0) and (n % bs): raise ValueError(
-        "local size %d not divisible by block size %d" % (n, bs) )
+        "local size %d not divisible by block size %d" %
+        (toInt(n), toInt(bs)) )
     if (N > 0) and (N % bs): raise ValueError(
-        "global size %d not divisible by block size %d" % (N, bs) )
+        "global size %d not divisible by block size %d" % 
+        (toInt(N), toInt(bs)) )
     # split ownership
     if n > 0: n = n // bs
     if N > 0: N = N // bs

@@ -13,14 +13,14 @@ cdef extern from "petsc.h" nogil:
     int PetscLogStageRegister(char[],PetscLogStage*)
     int PetscLogStagePush(PetscLogStage)
     int PetscLogStagePop()
-    int PetscLogStageSetActive(PetscLogStage,PetscTruth)
-    int PetscLogStageGetActive(PetscLogStage,PetscTruth*)
-    int PetscLogStageSetVisible(PetscLogStage,PetscTruth)
-    int PetscLogStageGetVisible(PetscLogStage,PetscTruth*)
+    int PetscLogStageSetActive(PetscLogStage,PetscBool)
+    int PetscLogStageGetActive(PetscLogStage,PetscBool*)
+    int PetscLogStageSetVisible(PetscLogStage,PetscBool)
+    int PetscLogStageGetVisible(PetscLogStage,PetscBool*)
     int PetscLogStageGetId(char[],PetscLogStage*)
 
-    ctypedef int PetscLogClass "PetscCookie"
-    int PetscLogClassRegister"PetscCookieRegister"(char[],PetscLogClass*)
+    ctypedef int PetscLogClass "PetscClassId"
+    int PetscLogClassRegister"PetscClassIdRegister"(char[],PetscLogClass*)
     int PetscLogClassActivate"PetscLogEventActivateClass"(PetscLogClass)
     int PetscLogClassDeactivate"PetscLogEventDeactivateClass"(PetscLogClass)
 
@@ -33,15 +33,15 @@ cdef extern from "petsc.h" nogil:
 
     int PetscLogEventActivate(PetscLogEvent)
     int PetscLogEventDeactivate(PetscLogEvent)
-    int PetscLogEventSetActiveAll(PetscLogEvent,PetscTruth)
+    int PetscLogEventSetActiveAll(PetscLogEvent,PetscBool)
 
 cdef extern from "custom.h" nogil:
     int PetscLogStageFindId(char[],PetscLogStage*)
     int PetscLogClassFindId(char[],PetscLogClass*)
     int PetscLogEventFindId(char[],PetscLogEvent*)
-    int PetscLogStageFindName(PetscLogStage,const_char_p[])
-    int PetscLogClassFindName(PetscLogClass,const_char_p[])
-    int PetscLogEventFindName(PetscLogEvent,const_char_p[])
+    int PetscLogStageFindName(PetscLogStage,char*[])
+    int PetscLogClassFindName(PetscLogClass,char*[])
+    int PetscLogEventFindName(PetscLogEvent,char*[])
 
 
 cdef inline int event_args2objs(object args, PetscObject o[4]) except -1:

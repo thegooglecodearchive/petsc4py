@@ -7,8 +7,7 @@ from sys import getrefcount
 class TestOptions(unittest.TestCase):
 
     PREFIX  = 'myopts-'
-    OPTLIST = [('truth',  True),
-               ('bool',   False),
+    OPTLIST = [('bool',   True),
                ('int',    7),
                ('real',   5),
                ('scalar', 3),
@@ -88,9 +87,6 @@ class TestOptions(unittest.TestCase):
         self._delopts()
 
 # --------------------------------------------------------------------
-
-if PETSc.Sys.getVersion() < (3,0,0):
-    del TestOptions.testGetAllQuoted
 
 del TestOptions.testMonitor # XXX
 

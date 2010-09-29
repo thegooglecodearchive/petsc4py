@@ -8,7 +8,7 @@ def mkgraph(comm, m, n):
     end   = start + m*n
     idt = PETSc.IntType
     rows = []
-    for I in xrange(start, end) :
+    for I in range(start, end) :
         rows.append([])
         adj = rows[-1]
         i = I//n; j = I - i*n
@@ -158,8 +158,8 @@ class BaseTestMatAnyAIJ(object):
         rank = self.A.getComm().getRank()
         rs, re = self.A.getOwnershipRange()
         cs, ce = self.A.getOwnershipRangeColumn()
-        rows = N.arange(rs, re, dtype=PETSc.IntType)
-        cols = N.arange(cs, ce, dtype=PETSc.IntType)
+        rows = N.array(range(rs, re), dtype=PETSc.IntType)
+        cols = N.array(range(cs, ce), dtype=PETSc.IntType)
         rows = PETSc.IS().createGeneral(rows, comm=self.A.getComm())
         cols = PETSc.IS().createGeneral(cols, comm=self.A.getComm())
         #
@@ -237,12 +237,6 @@ class BaseTestMatAnyAIJ(object):
         if None not in (ai, aj):
             self.assertTrue(N.all(i==ai))
             self.assertTrue(N.all(j==aj))
-        return # XXX review
-        version, patch = PETSc.Sys.getVersion(patch=True)
-        #if version >= (2,3,3): #and patch >= 13:
-        ai, aj = A.getRowIJ(compressed=False)
-        print ai, aj
-
 
 # -- AIJ ---------------------
 
@@ -507,125 +501,122 @@ class TestMatMPIAIJ_B_G89_B5(TestMatMPIAIJ_B_G89):
 
 # -----
 
-if PETSc.Sys.getVersion() < (3,0,0):
-    del BaseTestMatAnyAIJ.testCreateTranspose
-
 if PETSc.Sys.getVersion() >= (3,1,0):
-    # -- CRL ---------------------
+    # -- AIJCRL ---------------------
 
-    class BaseTestMatCRL(BaseTestMatAIJ, unittest.TestCase):
-        TYPE  = PETSc.Mat.Type.CRL
+    class BaseTestMatAIJCRL(BaseTestMatAIJ, unittest.TestCase):
+        TYPE  = PETSc.Mat.Type.AIJCRL
 
-    # -- Seq CRL --
+    # -- Seq AIJCRL --
 
-    class TestMatSeqCRL(BaseTestMatCRL):
+    class TestMatSeqAIJCRL(BaseTestMatAIJCRL):
         COMM = PETSc.COMM_SELF
-        TYPE = PETSc.Mat.Type.SEQCRL
-    class TestMatSeqCRL_G23(TestMatSeqCRL):
+        TYPE = PETSc.Mat.Type.SEQAIJCRL
+    class TestMatSeqAIJCRL_G23(TestMatSeqAIJCRL):
         GRID  = 2, 3
-    class TestMatSeqCRL_G45(TestMatSeqCRL):
+    class TestMatSeqAIJCRL_G45(TestMatSeqAIJCRL):
         GRID  = 4, 5
-    class TestMatSeqCRL_G89(TestMatSeqCRL):
+    class TestMatSeqAIJCRL_G89(TestMatSeqAIJCRL):
         GRID  = 8, 9
 
-    # -- MPI CRL --
+    # -- MPI AIJCRL --
 
-    class TestMatMPICRL(BaseTestMatCRL):
+    class TestMatMPIAIJCRL(BaseTestMatAIJCRL):
         COMM = PETSc.COMM_WORLD
-        TYPE = PETSc.Mat.Type.MPICRL
-    class TestMatMPICRL_G23(TestMatMPICRL):
+        TYPE = PETSc.Mat.Type.MPIAIJCRL
+    class TestMatMPIAIJCRL_G23(TestMatMPIAIJCRL):
         GRID  = 2, 3
-    class TestMatMPICRL_G45(TestMatMPICRL):
+    class TestMatMPIAIJCRL_G45(TestMatMPIAIJCRL):
         GRID  = 4, 5
-    class TestMatMPICRL_G89(TestMatMPICRL):
+    class TestMatMPIAIJCRL_G89(TestMatMPIAIJCRL):
         GRID  = 8, 9
 
-    # -- CRL + Block -------------
+    # -- AIJCRL + Block -------------
 
-    class BaseTestMatCRL_B(BaseTestMatAIJ_B, unittest.TestCase):
+    class BaseTestMatAIJCRL_B(BaseTestMatAIJ_B, unittest.TestCase):
         TYPE  = PETSc.Mat.Type.AIJ
 
-    # -- Seq CRL + Block --
+    # -- Seq AIJCRL + Block --
 
-    class TestMatSeqCRL_B(BaseTestMatCRL_B):
+    class TestMatSeqAIJCRL_B(BaseTestMatAIJCRL_B):
         COMM = PETSc.COMM_SELF
-        TYPE = PETSc.Mat.Type.SEQCRL
+        TYPE = PETSc.Mat.Type.SEQAIJCRL
     # bs = 1
-    class TestMatSeqCRL_B_G23(TestMatSeqCRL_B):
+    class TestMatSeqAIJCRL_B_G23(TestMatSeqAIJCRL_B):
         GRID  = 2, 3
-    class TestMatSeqCRL_B_G45(TestMatSeqCRL_B):
+    class TestMatSeqAIJCRL_B_G45(TestMatSeqAIJCRL_B):
         GRID  = 4, 5
-    class TestMatSeqCRL_B_G89(TestMatSeqCRL_B):
+    class TestMatSeqAIJCRL_B_G89(TestMatSeqAIJCRL_B):
         GRID  = 8, 9
     # bs = 2
-    class TestMatSeqCRL_B_G23_B2(TestMatSeqCRL_B_G23):
+    class TestMatSeqAIJCRL_B_G23_B2(TestMatSeqAIJCRL_B_G23):
         BSIZE = 2
-    class TestMatSeqCRL_B_G45_B2(TestMatSeqCRL_B_G45):
+    class TestMatSeqAIJCRL_B_G45_B2(TestMatSeqAIJCRL_B_G45):
         BSIZE = 2
-    class TestMatSeqCRL_B_G89_B2(TestMatSeqCRL_B_G89):
+    class TestMatSeqAIJCRL_B_G89_B2(TestMatSeqAIJCRL_B_G89):
         BSIZE = 2
     # bs = 3
-    class TestMatSeqCRL_B_G23_B3(TestMatSeqCRL_B_G23):
+    class TestMatSeqAIJCRL_B_G23_B3(TestMatSeqAIJCRL_B_G23):
         BSIZE = 3
-    class TestMatSeqCRL_B_G45_B3(TestMatSeqCRL_B_G45):
+    class TestMatSeqAIJCRL_B_G45_B3(TestMatSeqAIJCRL_B_G45):
         BSIZE = 3
-    class TestMatSeqCRL_B_G89_B3(TestMatSeqCRL_B_G89):
+    class TestMatSeqAIJCRL_B_G89_B3(TestMatSeqAIJCRL_B_G89):
         BSIZE = 3
     # bs = 4
-    class TestMatSeqCRL_B_G23_B4(TestMatSeqCRL_B_G23):
+    class TestMatSeqAIJCRL_B_G23_B4(TestMatSeqAIJCRL_B_G23):
         BSIZE = 4
-    class TestMatSeqCRL_B_G45_B4(TestMatSeqCRL_B_G45):
+    class TestMatSeqAIJCRL_B_G45_B4(TestMatSeqAIJCRL_B_G45):
         BSIZE = 4
-    class TestMatSeqCRL_B_G89_B4(TestMatSeqCRL_B_G89):
+    class TestMatSeqAIJCRL_B_G89_B4(TestMatSeqAIJCRL_B_G89):
         BSIZE = 4
     # bs = 5
-    class TestMatSeqCRL_B_G23_B5(TestMatSeqCRL_B_G23):
+    class TestMatSeqAIJCRL_B_G23_B5(TestMatSeqAIJCRL_B_G23):
         BSIZE = 5
-    class TestMatSeqCRL_B_G45_B5(TestMatSeqCRL_B_G45):
+    class TestMatSeqAIJCRL_B_G45_B5(TestMatSeqAIJCRL_B_G45):
         BSIZE = 5
-    class TestMatSeqCRL_B_G89_B5(TestMatSeqCRL_B_G89):
+    class TestMatSeqAIJCRL_B_G89_B5(TestMatSeqAIJCRL_B_G89):
         BSIZE = 5
 
 
-    # -- MPI CRL + Block --
+    # -- MPI AIJCRL + Block --
 
-    class TestMatMPICRL_B(BaseTestMatCRL_B):
+    class TestMatMPIAIJCRL_B(BaseTestMatAIJCRL_B):
         COMM = PETSc.COMM_WORLD
-        TYPE = PETSc.Mat.Type.MPICRL
+        TYPE = PETSc.Mat.Type.MPIAIJCRL
     # bs = 1
-    class TestMatMPICRL_B_G23(TestMatMPICRL_B):
+    class TestMatMPIAIJCRL_B_G23(TestMatMPIAIJCRL_B):
         GRID  = 2, 3
-    class TestMatMPICRL_B_G45(TestMatMPICRL_B):
+    class TestMatMPIAIJCRL_B_G45(TestMatMPIAIJCRL_B):
         GRID  = 4, 5
-    class TestMatMPICRL_B_G89(TestMatMPICRL_B):
+    class TestMatMPIAIJCRL_B_G89(TestMatMPIAIJCRL_B):
         GRID  = 8, 9
     # bs = 2
-    class TestMatMPICRL_B_G23_B2(TestMatMPICRL_B_G23):
+    class TestMatMPIAIJCRL_B_G23_B2(TestMatMPIAIJCRL_B_G23):
         BSIZE = 2
-    class TestMatMPICRL_B_G45_B2(TestMatMPICRL_B_G45):
+    class TestMatMPIAIJCRL_B_G45_B2(TestMatMPIAIJCRL_B_G45):
         BSIZE = 2
-    class TestMatMPICRL_B_G89_B2(TestMatMPICRL_B_G89):
+    class TestMatMPIAIJCRL_B_G89_B2(TestMatMPIAIJCRL_B_G89):
         BSIZE = 2
     # bs = 3
-    class TestMatMPICRL_B_G23_B3(TestMatMPICRL_B_G23):
+    class TestMatMPIAIJCRL_B_G23_B3(TestMatMPIAIJCRL_B_G23):
         BSIZE = 3
-    class TestMatMPICRL_B_G45_B3(TestMatMPICRL_B_G45):
+    class TestMatMPIAIJCRL_B_G45_B3(TestMatMPIAIJCRL_B_G45):
         BSIZE = 3
-    class TestMatMPICRL_B_G89_B3(TestMatMPICRL_B_G89):
+    class TestMatMPIAIJCRL_B_G89_B3(TestMatMPIAIJCRL_B_G89):
         BSIZE = 3
     # bs = 4
-    class TestMatMPICRL_B_G23_B4(TestMatMPICRL_B_G23):
+    class TestMatMPIAIJCRL_B_G23_B4(TestMatMPIAIJCRL_B_G23):
         BSIZE = 4
-    class TestMatMPICRL_B_G45_B4(TestMatMPICRL_B_G45):
+    class TestMatMPIAIJCRL_B_G45_B4(TestMatMPIAIJCRL_B_G45):
         BSIZE = 4
-    class TestMatMPICRL_B_G89_B4(TestMatMPICRL_B_G89):
+    class TestMatMPIAIJCRL_B_G89_B4(TestMatMPIAIJCRL_B_G89):
         BSIZE = 4
     # bs = 5
-    class TestMatMPICRL_B_G23_B5(TestMatMPICRL_B_G23):
+    class TestMatMPIAIJCRL_B_G23_B5(TestMatMPIAIJCRL_B_G23):
         BSIZE = 5
-    class TestMatMPICRL_B_G45_B5(TestMatMPICRL_B_G45):
+    class TestMatMPIAIJCRL_B_G45_B5(TestMatMPIAIJCRL_B_G45):
         BSIZE = 5
-    class TestMatMPICRL_B_G89_B5(TestMatMPICRL_B_G89):
+    class TestMatMPIAIJCRL_B_G89_B5(TestMatMPIAIJCRL_B_G89):
         BSIZE = 5
 
     # -----

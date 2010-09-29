@@ -8,14 +8,16 @@ from sys import getrefcount
 
 class Function:
     def __call__(self, snes, x, f):
-        f[0] = x[0]*x[0] + x[0]*x[1] - 3.0;
-        f[1] = x[0]*x[1] + x[1]*x[1] - 6.0;
+        f[0] = (x[0]*x[0] + x[0]*x[1] - 3.0).item()
+        f[1] = (x[0]*x[1] + x[1]*x[1] - 6.0).item()
         f.assemble()
 
 class Jacobian:
     def __call__(self, snes, x, J, P):
-        P[0,0] = 2.0*x[0] + x[1]; P[0,1] = x[0];
-        P[1,0] = x[1];            P[1,1] = x[0] + 2.0*x[1];
+        P[0,0] = (2.0*x[0] + x[1]).item() 
+        P[0,1] = (x[0]).item()
+        P[1,0] = (x[1]).item() 
+        P[1,1] = (x[0] + 2.0*x[1]).item()
         P.assemble()
         if J != P: J.assemble()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
@@ -331,11 +333,6 @@ class BaseTestSNES(object):
         self.assertAlmostEqual(abs(x[0]), 1.0)
         self.assertAlmostEqual(abs(x[1]), 2.0)
 
-
-if PETSc.Sys.getVersion() < (2,3,3):
-    del BaseTestSNES.testFDColor
-
-
 # --------------------------------------------------------------------
 
 class TestSNESLS(BaseTestSNES, unittest.TestCase):
@@ -378,7 +375,7 @@ class MySNES(object):
             if isinstance(a, PETSc.Object):
                 pargs[-1] = type(a).__name__
         pargs = tuple(pargs)
-        print '%-20s' % ('%s.%s%s'% (clsname, method, pargs))
+        print ('%-20s' % ('%s.%s%s'% (clsname, method, pargs)))
 
     def create(self,*args):
         self._log('create', *args)
@@ -387,14 +384,14 @@ class MySNES(object):
         self._log('destroy', *args)
         if not self.trace: return
         for k, v in self.call_log.items():
-            print '%-20s %2d' % (k, v)
+            print ('%-20s %2d' % (k, v))
 
     def view(self, snes, viewer):
         self._log('view', snes, viewer)
 
     def setFromOptions(self, snes):
         OptDB = PETSc.Options(snes)
-        self.trace = OptDB.getTruth('trace',self.trace)
+        self.trace = OptDB.getBool('trace',self.trace)
         self._log('setFromOptions',snes)
 
     def setUp(self, snes):

@@ -22,28 +22,28 @@ cdef extern from "petscis.h" nogil:
     int ISGetIndices(PetscIS,const_PetscInt*[])
     int ISRestoreIndices(PetscIS,const_PetscInt*[])
 
-    int ISEqual(PetscIS,PetscIS,PetscTruth*)
+    int ISEqual(PetscIS,PetscIS,PetscBool*)
 
     int ISSetPermutation(PetscIS)
-    int ISPermutation(PetscIS,PetscTruth*)
+    int ISPermutation(PetscIS,PetscBool*)
     int ISSetIdentity(PetscIS)
-    int ISIdentity(PetscIS,PetscTruth*)
+    int ISIdentity(PetscIS,PetscBool*)
 
     int ISSort(PetscIS)
-    int ISSorted(PetscIS,PetscTruth*)
+    int ISSorted(PetscIS,PetscBool*)
 
     int ISSum(PetscIS,PetscIS,PetscIS*)
     int ISExpand(PetscIS,PetscIS,PetscIS*)
     int ISDifference(PetscIS,PetscIS,PetscIS*)
     int ISComplement(PetscIS,PetscInt,PetscInt,PetscIS*)
 
-    int ISBlock(PetscIS,PetscTruth*)
+    int ISBlock(PetscIS,PetscBool*)
     int ISBlockGetIndices(PetscIS,const_PetscInt*[])
     int ISBlockRestoreIndices(PetscIS,const_PetscInt*[])
     int ISBlockGetSize(PetscIS,PetscInt*)
     int ISBlockGetLocalSize(PetscIS,PetscInt*)
     int ISBlockGetBlockSize(PetscIS,PetscInt*)
-    int ISStride(PetscIS,PetscTruth*)
+    int ISStride(PetscIS,PetscBool*)
     int ISStrideGetInfo(PetscIS,PetscInt*,PetscInt*)
     int ISStrideToGeneral(PetscIS)
 
@@ -67,3 +67,105 @@ cdef extern from "petscis.h" nogil:
     int ISLocalToGlobalMappingBlock(PetscLGMap,PetscInt,PetscLGMap*)
     int ISLocalToGlobalMappingApply(PetscLGMap mapping,PetscInt,PetscInt[],PetscInt[])
     int ISGlobalToLocalMappingApply(PetscLGMap,PetscGLMapType,PetscInt,PetscInt[],PetscInt*,PetscInt[])
+
+
+# --------------------------------------------------------------------
+
+cdef extern from "pep3118.h":
+    int  PyPetscBuffer_FillInfo(Py_buffer*,
+                                void*,PetscInt,char,
+                                int,int) except -1
+    void PyPetscBuffer_Release(Py_buffer*)
+
+# --------------------------------------------------------------------
+
+cdef class _IS_buffer:
+
+    cdef PetscIS iset
+    cdef PetscInt size
+    cdef const_PetscInt *data
+
+    def __cinit__(self, IS iset not None):
+        cdef PetscIS i = iset.iset
+        CHKERR( PetscIncref(<PetscObject>i) )
+        self.iset = i
+        self.size = 0
+        self.data = NULL
+
+    def __dealloc__(self):
+        if self.iset != NULL:
+            if self.data != NULL:
+                CHKERR( ISRestoreIndices(self.iset, &self.data) )
+            CHKERR( ISDestroy(self.iset) )
+
+    #
+
+    cdef int acquire(self) except -1:
+        if self.iset != NULL and self.data == NULL:
+            CHKERR( ISGetLocalSize(self.iset, &self.size) )
+            CHKERR( ISGetIndices(self.iset, &self.data) )
+        return 0
+
+    cdef int release(self) except -1:
+        if self.iset != NULL and self.data != NULL:
+            CHKERR( ISRestoreIndices(self.iset, &self.data) )
+            self.size = 0
+            self.data = NULL
+        return 0
+
+    # buffer interface (PEP 3118)
+
+    cdef int acquirebuffer(self, Py_buffer *view, int flags) except -1:
+        self.acquire()
+        PyPetscBuffer_FillInfo(view, <void*>self.data,
+                               self.size, c'i', 0, flags)
+        view.obj = self
+        return 0
+
+    cdef int releasebuffer(self, Py_buffer *view) except -1:
+        PyPetscBuffer_Release(view)
+        self.release()
+        return 0
+
+    def __getbuffer__(self, Py_buffer *view, int flags):
+        self.acquirebuffer(view, flags)
+
+    def __releasebuffer__(self, Py_buffer *view):
+        self.releasebuffer(view)
+
+    # buffer interface (legacy)
+
+    cdef Py_ssize_t getbuffer(self, Py_ssize_t idx, void **p) except -1:
+        if idx != 0: raise SystemError(
+            "accessing non-existent buffer segment")
+        if self.iset != NULL:
+            CHKERR( ISGetLocalSize(self.iset, &self.size) )
+        if p != NULL:
+            if self.iset != NULL and self.data == NULL:
+                CHKERR( ISGetIndices(self.iset, &self.data) )
+            p[0] = <void*>self.data
+        return <Py_ssize_t> (self.size*sizeof(PetscInt))
+
+    def __getsegcount__(self, Py_ssize_t *lenp):
+        if lenp != NULL:
+            lenp[0] = self.getbuffer(0, NULL)
+        return 1
+
+    def __getreadbuffer__(self, Py_ssize_t idx, void **p):
+        return self.getbuffer(idx, p)
+
+    # NumPy array interface (legacy)
+
+    property __array_interface__:
+        def __get__(self):
+            if self.iset != NULL:
+                CHKERR( ISGetLocalSize(self.iset, &self.size) )
+            cdef object size = toInt(self.size)
+            cdef dtype descr = PyArray_DescrFromType(NPY_PETSC_INT)
+            cdef str typestr = "=%c%d" % (descr.kind, descr.itemsize)
+            return dict(version=3,
+                        data=self,
+                        shape=(size,),
+                        typestr=typestr)
+
+# --------------------------------------------------------------------
