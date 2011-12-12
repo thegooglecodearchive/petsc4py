@@ -868,7 +868,7 @@ cdef class Mat(Object):
     # matrix-vector product
 
     def setNullSpace(self, NullSpace nsp not None):
-        CHKERR( MatNullSpaceAttach(self.mat, nsp.nsp) )
+        CHKERR( MatSetNullSpace(self.mat, nsp.nsp) )
 
     def mult(self, Vec x not None, Vec y not None):
         CHKERR( MatMult(self.mat, x.vec, y.vec) )
@@ -967,7 +967,7 @@ cdef class Mat(Object):
         CHKERR( MatMatMult(self.mat, mat.mat, reuse, rval, &result.mat) )
         return result
 
-    def matMultTranspose(self, Mat mat not None, Mat result=None, fill=None):
+    def matTransposeMult(self, Mat mat not None, Mat result=None, fill=None):
         cdef PetscMatReuse reuse = MAT_INITIAL_MATRIX
         cdef PetscReal rval = 2
         if result is None:
@@ -975,7 +975,18 @@ cdef class Mat(Object):
         elif result.mat != NULL:
             reuse = MAT_REUSE_MATRIX
         if fill is not None: rval = asReal(fill)
-        CHKERR( MatMatMultTranspose(self.mat, mat.mat, reuse, rval, &result.mat) )
+        CHKERR( MatMatTransposeMult(self.mat, mat.mat, reuse, rval, &result.mat) )
+        return result
+
+    def transposeMatMult(self, Mat mat not None, Mat result=None, fill=None):
+        cdef PetscMatReuse reuse = MAT_INITIAL_MATRIX
+        cdef PetscReal rval = 2
+        if result is None:
+            result = Mat()
+        elif result.mat != NULL:
+            reuse = MAT_REUSE_MATRIX
+        if fill is not None: rval = asReal(fill)
+        CHKERR( MatTransposeMatMult(self.mat, mat.mat, reuse, rval, &result.mat) )
         return result
 
     # XXX factorization
