@@ -9,13 +9,19 @@ EXTERN_C_BEGIN
 extern PetscErrorCode (*PetscPythonMonitorSet_C)(PetscObject,const char*);
 EXTERN_C_END
 
+#if PETSC_VERSION_(3,2,0)
+#define PetscShell                  PetscFwk
+#define PetscShellPythonCall        PetscFwkPythonCall
+#define PetscShellPythonLoadVTable  PetscFwkPythonLoadVTable
+#define PetscShellPythonClearVTable PetscFwkPythonClearVTable
+#endif
 EXTERN_C_BEGIN
-#define PetscFwkPythonCall_C        PetscFwkPythonCall
-#define PetscFwkPythonLoadVTable_C  PetscFwkPythonLoadVTable
-#define PetscFwkPythonClearVTable_C PetscFwkPythonClearVTable
-extern PetscErrorCode (*PetscFwkPythonCall_C)(PetscFwk,const char*,void*);
-extern PetscErrorCode (*PetscFwkPythonLoadVTable_C)(PetscFwk,const char*,const char*,void**);
-extern PetscErrorCode (*PetscFwkPythonClearVTable_C)(PetscFwk,void**);
+#define PetscShellPythonCall_C        PetscShellPythonCall
+#define PetscShellPythonLoadVTable_C  PetscShellPythonLoadVTable
+#define PetscShellPythonClearVTable_C PetscShellPythonClearVTable
+extern PetscErrorCode (*PetscShellPythonCall_C)(PetscShell,const char*,void*);
+extern PetscErrorCode (*PetscShellPythonLoadVTable_C)(PetscShell,const char*,const char*,void**);
+extern PetscErrorCode (*PetscShellPythonClearVTable_C)(PetscShell,void**);
 EXTERN_C_END
 
 #undef __FUNCT__
@@ -100,15 +106,8 @@ PetscErrorCode SNESConverged(SNES snes,
 #define PETSC_ERR_PYTHON ((PetscErrorCode)(-1))
 #endif
 
-#if (PETSC_VERSION_(3,1,0) || PETSC_VERSION_(3,0,0))
-#define PETSC_ERROR_INITIAL 1
-#define PETSC_ERROR_REPEAT  0
-#define PetscERROR(comm,FUNCT,n,t,msg,arg) \
-  PetscError(__LINE__,FUNCT,__FILE__,__SDIR__,n,t,msg,arg)
-#else
 #define PetscERROR(comm,FUNCT,n,t,msg,arg) \
   PetscError(comm,__LINE__,FUNCT,__FILE__,__SDIR__,n,t,msg,arg)
-#endif
 
 #if PY_MAJOR_VERSION < 3
 PyMODINIT_FUNC initlibpetsc4py(void);

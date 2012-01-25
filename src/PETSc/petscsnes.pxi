@@ -5,11 +5,16 @@ cdef extern from * nogil:
     PetscSNESType SNESTR
     #PetscSNESType SNESPYTHON
     PetscSNESType SNESTEST
-    PetscSNESType SNESPICARD
+    PetscSNESType SNESNRICHARDSON
     PetscSNESType SNESKSPONLY
-    PetscSNESType SNESVI
+    PetscSNESType SNESVIRS
+    PetscSNESType SNESVISS
     PetscSNESType SNESNGMRES
+    PetscSNESType SNESQN
+    PetscSNESType SNESSHELL
+    PetscSNESType SNESNCG
     PetscSNESType SNESSORQN
+    PetscSNESType SNESFAS
 
     ctypedef enum PetscSNESConvergedReason "SNESConvergedReason":
       # iterating

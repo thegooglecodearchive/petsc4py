@@ -191,7 +191,8 @@ cdef extern from * nogil:
     int MatAXPY(PetscMat,PetscScalar,PetscMat,PetscMatStructure)
     int MatAYPX(PetscMat,PetscScalar,PetscMat,PetscMatStructure)
     int MatMatMult(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
-    int MatMatMultTranspose(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
+    int MatMatTransposeMult(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
+    int MatTransposeMatMult(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
     int MatMatMultSymbolic(PetscMat,PetscMat,PetscReal,PetscMat*)
     int MatMatMultNumeric(PetscMat,PetscMat,PetscMat)
 
@@ -317,7 +318,7 @@ cdef extern from * nogil:
     int MatNullSpaceCreate(MPI_Comm,PetscBool,PetscInt,PetscVec[],
                            PetscNullSpace*)
     int MatNullSpaceRemove(PetscNullSpace,PetscVec,PetscVec*)
-    int MatNullSpaceAttach(PetscMat,PetscNullSpace)
+    int MatSetNullSpace(PetscMat,PetscNullSpace)
     int MatNullSpaceTest(PetscNullSpace,PetscMat)
 
     ctypedef int MatNullSpaceFunction(PetscNullSpace,
