@@ -113,7 +113,7 @@ include "petscmpi.pxi"
 include "petscsys.pxi"
 include "petsclog.pxi"
 include "petscobj.pxi"
-include "petscfwk.pxi"
+include "petscshell.pxi"
 include "petscvwr.pxi"
 include "petscrand.pxi"
 include "petscis.pxi"
@@ -141,7 +141,7 @@ include "Sys.pyx"
 include "Log.pyx"
 include "Comm.pyx"
 include "Object.pyx"
-include "Fwk.pyx"
+include "Shell.pyx"
 include "Viewer.pyx"
 include "Random.pyx"
 include "IS.pyx"
@@ -166,10 +166,7 @@ cdef extern from "Python.h":
     int Py_IsInitialized() nogil
 
 cdef extern from * nogil:
-    PetscEHF *PetscTBEH
-    PetscEHF *PetscPyEH
-    int PetscPushErrorHandlerPython()
-    int PetscPopErrorHandlerPython()
+    PetscEHF *PetscTBEH "PetscTraceBackErrorHandler"
 
 cdef object tracebacklist = []
 
@@ -224,8 +221,6 @@ cdef int PetscPythonErrorHandler(
         return traceback(comm, line, cfun, cfile, cdir, n, p, mess, ctx)
     else:
         return PetscTBEH(comm, line, cfun, cfile, cdir, n, p, mess, ctx)
-
-PetscPyEH = PetscPythonErrorHandler
 
 # --------------------------------------------------------------------
 
@@ -297,8 +292,8 @@ cdef void finalize() nogil:
     # manage PETSc finalization
     if not (<int>PetscInitializeCalled): return
     if (<int>PetscFinalizeCalled): return
-    # deinstall custom error handler
-    ierr = PetscPopErrorHandlerPython()
+    # deinstall Python error handler
+    ierr = PetscPopErrorHandler()
     if ierr != 0:
         fprintf(stderr, "PetscPopErrorHandler() failed "
                 "[error code: %d]\n", ierr)
@@ -320,8 +315,8 @@ cdef int initialize(object args, object comm) except -1:
     PETSC_COMM_WORLD = def_Comm(comm, PETSC_COMM_WORLD)
     # initialize PETSc
     CHKERR( PetscInitialize(&PyPetsc_Argc, &PyPetsc_Argv, NULL, NULL) )
-    # install custom error handler
-    CHKERR( PetscPushErrorHandlerPython() )
+    # install Python error handler
+    CHKERR( PetscPushErrorHandler(PetscPythonErrorHandler, NULL) )
     # register finalization function
     if Py_AtExit(finalize) < 0:
         PySys_WriteStderr("warning: could not register"
@@ -330,7 +325,7 @@ cdef int initialize(object args, object comm) except -1:
 
 cdef extern from *:
     PetscClassId PETSC_OBJECT_CLASSID    "PETSC_OBJECT_CLASSID"
-    PetscClassId PETSC_FWK_CLASSID       "PETSC_FWK_CLASSID"
+    PetscClassId PETSC_SHELL_CLASSID     "PETSC_SHELL_CLASSID"
     PetscClassId PETSC_VIEWER_CLASSID    "PETSC_VIEWER_CLASSID"
     PetscClassId PETSC_RANDOM_CLASSID    "PETSC_RANDOM_CLASSID"
     PetscClassId PETSC_IS_CLASSID        "IS_CLASSID"
@@ -354,7 +349,7 @@ cdef int register(char path[]) except -1:
     CHKERR( PetscPythonRegisterAll(path) )
     # register Python types
     PyPetscType_Register(PETSC_OBJECT_CLASSID,    Object)
-    PyPetscType_Register(PETSC_FWK_CLASSID,       Fwk)
+    PyPetscType_Register(PETSC_SHELL_CLASSID,     Shell)
     PyPetscType_Register(PETSC_VIEWER_CLASSID,    Viewer)
     PyPetscType_Register(PETSC_RANDOM_CLASSID,    Random)
     PyPetscType_Register(PETSC_IS_CLASSID,        IS)
