@@ -5,11 +5,16 @@ class SNESType(object):
     TR      = S_(SNESTR)
     PYTHON  = S_(SNESPYTHON)
     TEST    = S_(SNESTEST)
-    PICARD  = S_(SNESPICARD)
+    NRICHARDSON = S_(SNESNRICHARDSON)
     KSPONLY = S_(SNESKSPONLY)
-    VI      = S_(SNESVI)
+    VIRS    = S_(SNESVIRS)
+    VISS    = S_(SNESVISS)
     NGMRES  = S_(SNESNGMRES)
+    QN      = S_(SNESQN)
+    SHELL   = S_(SNESSHELL)
+    NCG     = S_(SNESNCG)
     SORQN   = S_(SNESSORQN)
+    FAS     = S_(SNESFAS)
 
 class SNESConvergedReason(object):
     # iterating
@@ -18,7 +23,6 @@ class SNESConvergedReason(object):
     # converged
     CONVERGED_FNORM_ABS      = SNES_CONVERGED_FNORM_ABS
     CONVERGED_FNORM_RELATIVE = SNES_CONVERGED_FNORM_RELATIVE
-    CONVERGED_PNORM_RELATIVE = SNES_CONVERGED_PNORM_RELATIVE
     CONVERGED_ITS            = SNES_CONVERGED_ITS
     CONVERGED_TR_DELTA       = SNES_CONVERGED_TR_DELTA
     # diverged

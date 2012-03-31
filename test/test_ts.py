@@ -88,6 +88,7 @@ class BaseTestTSNonlinearRHS(BaseTestTSNonlinear):
         J = PETSc.Mat().create(ts.comm)
         J.setSizes(3);
         J.setFromOptions()
+        J.setUp()
         u, f = J.createVecs()
 
         ts.setAppCtx(ode)
@@ -129,7 +130,6 @@ class BaseTestTSNonlinearRHS(BaseTestTSNonlinear):
         J = PETSc.Mat().create(ts.comm)
         J.setSizes(5); J.setType('aij')
         J.setPreallocationNNZ(nnz=1)
-        J.setFromOptions()
         u, f = J.createVecs()
 
         ts.setAppCtx(ode)
@@ -170,6 +170,7 @@ class BaseTestTSNonlinearI(BaseTestTSNonlinear):
         J = PETSc.Mat().create(ts.comm)
         J.setSizes(3);
         J.setFromOptions()
+        J.setUp()
         u, f = J.createVecs()
 
         ts.setAppCtx(ode)
@@ -260,6 +261,9 @@ class TestTSAlpha(BaseTestTSNonlinearRHS, BaseTestTSNonlinearI,
 
 PETSC_VERSION = PETSc.Sys.getVersion()
 
+if PETSC_VERSION < (3, 3, 0):
+    TestTSCN.testFDColorI = lambda *args: None
+    TestTSCN.testFDColorRHS = lambda *args: None
 if PETSC_VERSION < (3, 2, 0):
     del BaseTestTSNonlinearRHS.testResetAndSolveRHS
     del BaseTestTSNonlinearI.testResetAndSolveI
