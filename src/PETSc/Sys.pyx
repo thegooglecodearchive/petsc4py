@@ -124,7 +124,13 @@ cdef class Sys:
     def splitOwnership(cls, size, bsize=None, comm=None):
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
         cdef PetscInt bs=0, n=0, N=0
-        CHKERR( Sys_SplitSizes(ccomm, size, bsize, &bs, &n, &N) )
+        Sys_Sizes(size, bsize, &bs, &n, &N)
+        if bs == PETSC_DECIDE: bs = 1
+        if n > 0: n = n // bs
+        if N > 0: N = N // bs
+        CHKERR( PetscSplitOwnership(ccomm, &n, &N) )
+        n = n * bs
+        N = N * bs
         return (toInt(n), toInt(N))
 
     @classmethod
@@ -137,7 +143,8 @@ cdef class Sys:
     @classmethod
     def pushErrorHandler(cls, errhandler):
         if errhandler == "python":
-            CHKERR( PetscPushErrorHandlerPython() )
+            CHKERR( PetscPushErrorHandler(
+                    PetscPythonErrorHandler, NULL) )
         elif errhandler == "debugger":
             CHKERR( PetscPushErrorHandler(
                     PetscAttachDebuggerErrorHandler, NULL) )

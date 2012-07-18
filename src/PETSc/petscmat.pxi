@@ -191,7 +191,8 @@ cdef extern from * nogil:
     int MatAXPY(PetscMat,PetscScalar,PetscMat,PetscMatStructure)
     int MatAYPX(PetscMat,PetscScalar,PetscMat,PetscMatStructure)
     int MatMatMult(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
-    int MatMatMultTranspose(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
+    int MatMatTransposeMult(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
+    int MatTransposeMatMult(PetscMat,PetscMat,PetscMatReuse,PetscReal,PetscMat*)
     int MatMatMultSymbolic(PetscMat,PetscMat,PetscReal,PetscMat*)
     int MatMatMultNumeric(PetscMat,PetscMat,PetscMat)
 
@@ -221,6 +222,7 @@ cdef extern from * nogil:
     int MatZeroRowsColumnsIS(PetscMat,PetscIS,PetscScalar,PetscVec,PetscVec)
 
     int MatGetDiagonal(PetscMat,PetscVec)
+    int MatInvertBlockDiagonal(PetscMat,const_PetscScalar**)
     int MatGetRowMax(PetscMat,PetscVec,PetscInt[])
     int MatGetRowMaxAbs(PetscMat,PetscVec,PetscInt[])
     int MatGetColumnVector(PetscMat,PetscVec,PetscInt)
@@ -301,7 +303,7 @@ cdef extern from "custom.h" nogil:
                           PetscInt,PetscInt,
                           PetscInt,PetscInt,
                           PetscMat*)
-    int MatAnyDenseSetPreallocation(PetscMat,PetscInt,PetscScalar[])
+    int MatAnyDenseSetPreallocation(PetscMat,PetscScalar[])
 
 cdef extern from "libpetsc4py.h":
     PetscMatType MATPYTHON
@@ -317,7 +319,7 @@ cdef extern from * nogil:
     int MatNullSpaceCreate(MPI_Comm,PetscBool,PetscInt,PetscVec[],
                            PetscNullSpace*)
     int MatNullSpaceRemove(PetscNullSpace,PetscVec,PetscVec*)
-    int MatNullSpaceAttach(PetscMat,PetscNullSpace)
+    int MatSetNullSpace(PetscMat,PetscNullSpace)
     int MatNullSpaceTest(PetscNullSpace,PetscMat)
 
     ctypedef int MatNullSpaceFunction(PetscNullSpace,
@@ -480,11 +482,10 @@ cdef inline int Mat_BlockSize(object bsize, PetscInt *_bs) except -1:
     _bs[0] = bs
     return 0
 
-cdef inline int Mat_SplitSizes(MPI_Comm comm,
-                               object size, object bsize,
-                               PetscInt *b,
-                               PetscInt *m, PetscInt *n,
-                               PetscInt *M, PetscInt *N) except -1:
+cdef inline int Mat_Sizes(object size, object bsize,
+                          PetscInt *b,
+                          PetscInt *m, PetscInt *n,
+                          PetscInt *M, PetscInt *N) except -1:
     # unpack row and column sizes
     cdef object rsize, csize
     try:
@@ -492,8 +493,8 @@ cdef inline int Mat_SplitSizes(MPI_Comm comm,
     except (TypeError, ValueError):
         rsize = csize = size
     # split row and column sizes
-    CHKERR( Sys_SplitSizes(comm, rsize, bsize, b, m, M) )
-    CHKERR( Sys_SplitSizes(comm, csize, bsize, b, n, N) )
+    Sys_Sizes(rsize, bsize, b, m, M)
+    Sys_Sizes(csize, bsize, b, n, N)
     return 0
 
 
@@ -581,25 +582,22 @@ cdef inline int Mat_AllocAIJ_CSR(PetscMat A, PetscInt bs, object CSR) \
     CHKERR( MatAnyAIJSetPreallocationCSR(A, bs, i, j, v) )
 
 
-cdef inline int Mat_AllocDense_DEFAULT(PetscMat A,
-                                       PetscInt bs) except -1:
+cdef inline int Mat_AllocDense_DEFAULT(PetscMat A) except -1:
     cdef PetscScalar *data=NULL
-    CHKERR( MatAnyDenseSetPreallocation(A, bs, data) )
+    CHKERR( MatAnyDenseSetPreallocation(A, data) )
     return 0
 
-cdef inline int Mat_AllocDense_ARRAY(PetscMat A, PetscInt bs,
-                                     object array) except -1:
+cdef inline object Mat_AllocDense_ARRAY(PetscMat A, object array):
     cdef PetscInt size=0
     cdef PetscScalar *data=NULL
-    cdef PetscInt m=0, n=0, b=bs
+    cdef PetscInt m=0, n=0
     CHKERR( MatGetLocalSize(A, &m, &n) )
-    if bs == PETSC_DECIDE: b = 1
     array = ofarray_s(array, &size, &data)
     if m*n != size: raise ValueError(
         "size(array) is %d, expected %dx%d=%d" %
         (toInt(size), toInt(m), toInt(n), toInt(m*n)) )
-    CHKERR( MatAnyDenseSetPreallocation(A, b, data) )
-    return 0
+    CHKERR( MatAnyDenseSetPreallocation(A, data) )
+    return array
 
 # -----------------------------------------------------------------------------
 
@@ -692,8 +690,8 @@ cdef inline int matsetvalues_rcv(PetscMat A,
     cdef Py_ssize_t k=0
     for k from 0 <= k < nm:
         CHKERR( setvalues(A,
-                          <PetscInt>si, &i[k*si], 
-                          <PetscInt>sj, &j[k*sj], 
+                          <PetscInt>si, &i[k*si],
+                          <PetscInt>sj, &j[k*sj],
                           &v[k*sv], addv) )
     return 0
 
@@ -832,7 +830,7 @@ cdef int matfactorinfo(PetscBool inc, PetscBool chol, object opts,
     cdef dtcount = options.pop('dtcount', None)
     if dtcount is not None:
         info.dtcount = <PetscReal>asInt(dtcount)
-    if ((dt is not None) or 
+    if ((dt is not None) or
         (dtcol is not None) or
         (dtcount is not None)):
         info.usedt = <PetscReal>PETSC_TRUE

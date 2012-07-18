@@ -13,6 +13,7 @@ cdef extern from * nogil:
     PetscTSType TSGL
     PetscTSType TSSSP
     PetscTSType TSARKIMEX
+    PetscTSType TSROSW
 
     ctypedef enum PetscTSProblemType "TSProblemType":
         TS_LINEAR
@@ -117,6 +118,15 @@ cdef extern from * nogil:
     int TSSetExactFinalTime(PetscTS,PetscBool)
     int TSSetConvergedReason(PetscTS,PetscTSConvergedReason)
     int TSGetConvergedReason(PetscTS,PetscTSConvergedReason*)
+    int TSGetSNESIterations(PetscTS,PetscInt*)
+    int TSGetKSPIterations(PetscTS,PetscInt*)
+    int TSGetStepRejections(PetscTS,PetscInt*)
+    int TSSetMaxStepRejections(PetscTS,PetscInt)
+    int TSGetSNESFailures(PetscTS,PetscInt*)
+    int TSSetMaxSNESFailures(PetscTS,PetscInt)
+    int TSSetErrorIfStepFails(PetscTS,PetscBool)
+    int TSSetTolerances(PetscTS,PetscReal,PetscVec,PetscReal,PetscVec)
+    int TSGetTolerances(PetscTS,PetscReal*,PetscVec*,PetscReal*,PetscVec*)
 
     int TSMonitorSet(PetscTS,PetscTSMonitorFunction,void*,PetscTSCtxDel*)
     int TSMonitorCancel(PetscTS)

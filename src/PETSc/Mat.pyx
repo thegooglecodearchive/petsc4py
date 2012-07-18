@@ -216,18 +216,25 @@ cdef class Mat(Object):
         CHKERR( MatSetType(self.mat, cval) )
 
     def setSizes(self, size, bsize=None):
-        cdef MPI_Comm ccomm = MPI_COMM_NULL
-        CHKERR( PetscObjectGetComm(<PetscObject>self.mat, &ccomm) )
         cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
-        CHKERR( Mat_SplitSizes(ccomm, size, bsize, &bs, &m, &n, &M, &N) )
+        Mat_Sizes(size, bsize, &bs, &m, &n, &M, &N)
         CHKERR( MatSetSizes(self.mat, m, n, M, N) )
+        if bs != PETSC_DECIDE:
+            CHKERR( MatSetBlockSize(self.mat, bs) )
+
+    def setBlockSize(self, bsize):
+        cdef PetscInt bs = asInt(bsize)
+        CHKERR( MatSetBlockSize(self.mat, bs) )
 
     #
 
     def createAIJ(self, size, bsize=None, nnz=None, csr=None, comm=None):
+        # communicator and sizes
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
         cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
-        CHKERR( Mat_SplitSizes(ccomm, size, bsize, &bs, &m, &n, &M, &N) )
+        Mat_Sizes(size, bsize, &bs, &m, &n, &M, &N)
+        Sys_Layout(ccomm, bs, &m, &M)
+        Sys_Layout(ccomm, bs, &n, &N)
         # create matrix
         cdef PetscMat newmat = NULL
         CHKERR( MatCreateAnyAIJ(ccomm, bs, m, n, M, N, &newmat) )
@@ -242,9 +249,12 @@ cdef class Mat(Object):
         return self
 
     def createAIJCRL(self, size, bsize=None, nnz=None, csr=None, comm=None):
+        # communicator and sizes
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
         cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
-        CHKERR( Mat_SplitSizes(ccomm, size, bsize, &bs, &m, &n, &M, &N) )
+        Mat_Sizes(size, bsize, &bs, &m, &n, &M, &N)
+        Sys_Layout(ccomm, bs, &m, &M)
+        Sys_Layout(ccomm, bs, &n, &N)
         # create matrix
         cdef PetscMat newmat = NULL
         CHKERR( MatCreateAnyAIJCRL(ccomm, bs, m, n, M, N, &newmat) )
@@ -256,6 +266,24 @@ cdef class Mat(Object):
             CHKERR( Mat_AllocAIJ_NNZ(self.mat, bs, nnz) )
         else:                 # default preallocation
             CHKERR( Mat_AllocAIJ_DEFAULT(self.mat, bs) )
+        return self
+
+    def createDense(self, size, bsize=None, array=None, comm=None):
+        cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
+        cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
+        Mat_Sizes(size, bsize, &bs, &m, &n, &M, &N)
+        Sys_Layout(ccomm, bs, &m, &M)
+        Sys_Layout(ccomm, bs, &n, &N)
+        # create matrix
+        cdef PetscMat newmat = NULL
+        CHKERR( MatCreateAnyDense(ccomm, bs, m, n, M, N, &newmat) )
+        PetscCLEAR(self.obj); self.mat = newmat
+        # preallocate matrix
+        if array is not None:
+            array = Mat_AllocDense_ARRAY(self.mat, array)
+            self.set_attr('__array__', array)
+        else:
+            Mat_AllocDense_DEFAULT(self.mat)
         return self
 
     def setPreallocationNNZ(self, nnz, bsize=None):
@@ -274,41 +302,14 @@ cdef class Mat(Object):
         else:
             CHKERR( Mat_AllocAIJ_DEFAULT(self.mat, bs) )
 
-    def createDense(self, size, bsize=None, array=None, comm=None):
-        cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
-        cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
-        CHKERR( Mat_SplitSizes(ccomm, size, bsize, &bs, &m, &n, &M, &N) )
-        # create matrix
-        cdef PetscMat newmat = NULL
-        CHKERR( MatCreateAnyDense(ccomm, bs, m, n, M, N, &newmat) )
-        PetscCLEAR(self.obj); self.mat = newmat
-        # preallocate matrix
+    def setPreallocationDense(self, array):
         if array is not None:
-            array = Mat_AllocDense_ARRAY(self.mat, bs, array)
+            array = Mat_AllocDense_ARRAY(self.mat, array)
             self.set_attr('__array__', array)
         else:
-            Mat_AllocDense_DEFAULT(self.mat, bs)
-        return self
+            CHKERR( Mat_AllocDense_DEFAULT(self.mat) )
 
-    def setPreallocationDense(self, array, bsize=None):
-        cdef PetscInt bs = PETSC_DECIDE
-        CHKERR( Mat_BlockSize(bsize, &bs) )
-        if array is not None:
-            CHKERR( Mat_AllocDense_ARRAY(self.mat, bs, array) )
-        else:
-            CHKERR( Mat_AllocDense_DEFAULT(self.mat, bs) )
-
-    def createIS(self, size, LGMap lgmap, comm=None):
-        if comm is None: comm = lgmap.getComm()
-        cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
-        cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
-        CHKERR( Mat_SplitSizes(ccomm, size, None, &bs, &m, &n, &M, &N) )
-        cdef PetscMat newmat = NULL
-        CHKERR( MatCreateIS(ccomm, m, n, M, N, lgmap.lgm, &newmat) )
-        PetscCLEAR(self.obj); self.mat = newmat
-        return self
-
-    def createScatter(self, Scatter scatter, comm=None):
+    def createScatter(self, Scatter scatter not None, comm=None):
         if comm is None: comm = scatter.getComm()
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
         cdef PetscMat newmat = NULL
@@ -342,20 +343,28 @@ cdef class Mat(Object):
         PetscCLEAR(self.obj); self.mat = newmat
         return self
 
-    ## def createShell(self, size, context, comm=None):
-    ##     raise NotImplementedError
-    ##     cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
-    ##     cdef PetscInt bs=0, m=0, n=0, M=0, N=0
-    ##     CHKERR( Mat_SplitSizes(ccomm, size, None, &bs, &m, &n, &M, &N) )
-    ##     cdef PetscMat newmat = NULL
-    ##     CHKERR( MatCreateShell(ccomm, m, n, M, N, NULL, &newmat) )
-    ##     PetscCLEAR(self.obj); self.mat = newmat
-    ##     return self
+    ##def createIS(self, size, LGMap lgmap not None, comm=None):
+    ##    # communicator and sizes
+    ##    if comm is None: comm = lgmap.getComm()
+    ##    cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
+    ##    cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
+    ##    Mat_Sizes(size, None, &bs, &m, &n, &M, &N)
+    ##    Sys_Layout(ccomm, bs, &m, &M)
+    ##    Sys_Layout(ccomm, bs, &n, &N)
+    ##    # create matrix
+    ##    cdef PetscMat newmat = NULL
+    ##    CHKERR( MatCreateIS(ccomm, m, n, M, N, lgmap.lgm, &newmat) )
+    ##    PetscCLEAR(self.obj); self.mat = newmat
+    ##    return self
 
     def createPython(self, size, context=None, comm=None):
+        # communicator and sizes
         cdef MPI_Comm ccomm = def_Comm(comm, PETSC_COMM_DEFAULT)
-        cdef PetscInt bs = 0, m=0, n=0, M=0, N=0
-        CHKERR( Mat_SplitSizes(ccomm, size, None, &bs, &m, &n, &M, &N) )
+        cdef PetscInt bs = 0, m = 0, n = 0, M = 0, N = 0
+        Mat_Sizes(size, None, &bs, &m, &n, &M, &N)
+        Sys_Layout(ccomm, bs, &m, &M)
+        Sys_Layout(ccomm, bs, &n, &N)
+        # create matrix
         cdef PetscMat newmat = NULL
         CHKERR( MatCreate(ccomm, &newmat) )
         PetscCLEAR(self.obj); self.mat = newmat
@@ -422,10 +431,6 @@ cdef class Mat(Object):
         CHKERR( MatGetSize(self.mat, &M, &N) )
         return ((toInt(m), toInt(n)), (toInt(M), toInt(N)))
 
-    def setBlockSize(self, bsize):
-        cdef PetscInt bs = asInt(bsize)
-        CHKERR( MatSetBlockSize(self.mat, bs) )
-
     def getBlockSize(self):
         cdef PetscInt bs = 0
         CHKERR( MatGetBlockSize(self.mat, &bs) )
@@ -467,9 +472,14 @@ cdef class Mat(Object):
         return mat
 
     def copy(self, Mat result=None, structure=None):
-        if result is None: return self.duplicate(True)
-        cdef PetscMatStructure flag = matstructure(structure)
-        CHKERR( MatCopy(self.mat, result.mat, flag) )
+        cdef PetscMatDuplicateOption copy = MAT_COPY_VALUES
+        cdef PetscMatStructure mstr = matstructure(structure)
+        if result is None:
+            result = type(self)()
+        if result.mat == NULL:
+            CHKERR( MatDuplicate(self.mat, copy, &result.mat) )
+        else:
+            CHKERR( MatCopy(self.mat, result.mat, mstr) )
         return result
 
     def load(self, Viewer viewer not None):
@@ -865,10 +875,20 @@ cdef class Mat(Object):
         if R is not None: vecr = R.vec
         CHKERR( MatDiagonalScale(self.mat, vecl, vecr) )
 
+    def invertBlockDiagonal(self):
+        cdef PetscInt bs = 0, m = 0
+        cdef const_PetscScalar *cibdiag = NULL
+        CHKERR( MatGetBlockSize(self.mat, &bs) )
+        CHKERR( MatGetLocalSize(self.mat, &m, NULL) )
+        CHKERR( MatInvertBlockDiagonal(self.mat, &cibdiag) )
+        cdef ndarray ibdiag = array_s(m*bs, cibdiag)
+        ibdiag.shape = (toInt(m//bs), toInt(bs), toInt(bs))
+        return ibdiag.transpose(0, 2, 1)
+
     # matrix-vector product
 
     def setNullSpace(self, NullSpace nsp not None):
-        CHKERR( MatNullSpaceAttach(self.mat, nsp.nsp) )
+        CHKERR( MatSetNullSpace(self.mat, nsp.nsp) )
 
     def mult(self, Vec x not None, Vec y not None):
         CHKERR( MatMult(self.mat, x.vec, y.vec) )
@@ -967,7 +987,7 @@ cdef class Mat(Object):
         CHKERR( MatMatMult(self.mat, mat.mat, reuse, rval, &result.mat) )
         return result
 
-    def matMultTranspose(self, Mat mat not None, Mat result=None, fill=None):
+    def matTransposeMult(self, Mat mat not None, Mat result=None, fill=None):
         cdef PetscMatReuse reuse = MAT_INITIAL_MATRIX
         cdef PetscReal rval = 2
         if result is None:
@@ -975,7 +995,18 @@ cdef class Mat(Object):
         elif result.mat != NULL:
             reuse = MAT_REUSE_MATRIX
         if fill is not None: rval = asReal(fill)
-        CHKERR( MatMatMultTranspose(self.mat, mat.mat, reuse, rval, &result.mat) )
+        CHKERR( MatMatTransposeMult(self.mat, mat.mat, reuse, rval, &result.mat) )
+        return result
+
+    def transposeMatMult(self, Mat mat not None, Mat result=None, fill=None):
+        cdef PetscMatReuse reuse = MAT_INITIAL_MATRIX
+        cdef PetscReal rval = 2
+        if result is None:
+            result = Mat()
+        elif result.mat != NULL:
+            reuse = MAT_REUSE_MATRIX
+        if fill is not None: rval = asReal(fill)
+        CHKERR( MatTransposeMatMult(self.mat, mat.mat, reuse, rval, &result.mat) )
         return result
 
     # XXX factorization
@@ -1147,7 +1178,7 @@ cdef class NullSpace(Object):
             if args is None: args = ()
             if kargs is None: kargs = {}
             self.set_attr('__function__', (function, args, kargs))
-        else:    
+        else:
             CHKERR( MatNullSpaceSetFunction(self.nsp, NULL, NULL) )
             self.set_attr('__function__', None)
 

@@ -36,18 +36,19 @@ class BaseTestMatAnyAIJ(object):
     def setUp(self):
         COMM   = self.COMM
         GM, GN = self.GRID
-        BS     = self.BSIZE or 1
+        BS     = self.BSIZE
         #
-        sdt = dtype=PETSc.ScalarType
+        bs = BS or 1
+        sdt = dtype = PETSc.ScalarType
         self.rows, self.xadj, self.adjy = mkgraph(COMM, GM, GN)
-        self.vals = N.array(range(1, 1 + len(self.adjy)* BS**2), dtype=sdt)
-        self.vals.shape = (-1, BS, BS)
+        self.vals = N.array(range(1, 1 + len(self.adjy)* bs**2), dtype=sdt)
+        self.vals.shape = (-1, bs, bs)
         #
-        self.A = A = PETSc.Mat().create(comm=COMM)
-        bs = BS; m, n = GM, GN; cs = COMM.getSize()
+        m, n, bs = GM, GN, BS or 1
         rowsz = colsz = (m*n*bs, None)
-        A.setSizes([rowsz, colsz], bs)
+        A = self.A = PETSc.Mat().create(comm=COMM)
         A.setType(self.TYPE)
+        A.setSizes([rowsz, colsz], BS)
 
     def tearDown(self):
         self.A.destroy()
@@ -86,7 +87,7 @@ class BaseTestMatAnyAIJ(object):
         self._chk_aij(self.A, ai, aj)
 
     def testSetPreallocCSR(self):
-        _, ai, aj, _ =self._get_aijv()
+        _, ai, aj, _ = self._get_aijv()
         csr = [ai, aj]
         self.A.setPreallocationCSR(csr, self.BSIZE)
         self._chk_bs(self.A, self.BSIZE)
@@ -175,6 +176,25 @@ class BaseTestMatAnyAIJ(object):
         B = self.A.getDiagonalBlock()
         self.assertEqual(self.A.getLocalSize(), B.getSize())
         B.destroy()
+
+    def testInvertBlockDiagonal(self):
+        if PETSc.Sys.getVersion() < (3,3,0):
+            if ('mpiaij' in self.A.type and
+                self.BSIZE and self.BSIZE > 1): return
+        self._preallocate()
+        self._set_values_ijv()
+        self.A.assemble()
+        self.A.shift(1000) # Make nonsingular
+        ibdiag = self.A.invertBlockDiagonal()
+        bs = self.A.getBlockSize()
+        m, _ = self.A.getLocalSize()
+        self.assertEqual(ibdiag.shape, (m//bs, bs, bs))
+        tmp = N.empty((m//bs, bs, bs), dtype=PETSc.ScalarType)
+        for i in range(m//bs):
+            rows = cols = N.arange(i*bs,(i+1)*bs, dtype=PETSc.IntType)
+            vals = self.A.getValues(rows,cols)
+            tmp[i,:,:] = N.linalg.inv(vals)
+        self.assertTrue(N.allclose(ibdiag, tmp))
 
     def testGetSubMatrix(self):
         if 'baij' in self.A.getType(): return # XXX
@@ -428,7 +448,6 @@ class BaseTestMatAIJ_B(BaseTestMatAnyAIJ, unittest.TestCase):
         self._chk_aij(self.A, ai, aj)
     def _preallocate(self):
         self.A.setPreallocationNNZ([5*self.BSIZE, 3*self.BSIZE])
-        self.A.setBlockSize(self.BSIZE)
         self._chk_bs(self.A, self.BSIZE)
     def _chk_aij(self, A, i, j):
         bs = self.BSIZE or 1

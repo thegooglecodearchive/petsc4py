@@ -5,11 +5,17 @@ class SNESType(object):
     TR      = S_(SNESTR)
     PYTHON  = S_(SNESPYTHON)
     TEST    = S_(SNESTEST)
-    PICARD  = S_(SNESPICARD)
+    NRICHARDSON = S_(SNESNRICHARDSON)
     KSPONLY = S_(SNESKSPONLY)
-    VI      = S_(SNESVI)
+    VIRS    = S_(SNESVIRS)
+    VISS    = S_(SNESVISS)
     NGMRES  = S_(SNESNGMRES)
-    SORQN   = S_(SNESSORQN)
+    QN      = S_(SNESQN)
+    SHELL   = S_(SNESSHELL)
+    GS      = S_(SNESGS)
+    NCG     = S_(SNESNCG)
+    FAS     = S_(SNESFAS)
+    MS      = S_(SNESMS)
 
 class SNESConvergedReason(object):
     # iterating
@@ -18,7 +24,6 @@ class SNESConvergedReason(object):
     # converged
     CONVERGED_FNORM_ABS      = SNES_CONVERGED_FNORM_ABS
     CONVERGED_FNORM_RELATIVE = SNES_CONVERGED_FNORM_RELATIVE
-    CONVERGED_PNORM_RELATIVE = SNES_CONVERGED_PNORM_RELATIVE
     CONVERGED_ITS            = SNES_CONVERGED_ITS
     CONVERGED_TR_DELTA       = SNES_CONVERGED_TR_DELTA
     # diverged
@@ -303,33 +308,40 @@ cdef class SNES(Object):
         CHKERR( SNESGetNumberFunctionEvals(self.snes, &ival) )
         return toInt(ival)
 
-    def setMaxNonlinearStepFailures(self, max_fails):
+    def setMaxStepFailures(self, max_fails):
         cdef PetscInt ival = asInt(max_fails)
         CHKERR( SNESSetMaxNonlinearStepFailures(self.snes, ival) )
 
-    def getMaxNonlinearStepFailures(self):
+    def getMaxStepFailures(self):
         cdef PetscInt ival = 0
         CHKERR( SNESGetMaxNonlinearStepFailures(self.snes, &ival) )
         return toInt(ival)
 
-    def getNonlinearStepFailures(self):
+    def getStepFailures(self):
         cdef PetscInt ival = 0
         CHKERR( SNESGetNonlinearStepFailures(self.snes, &ival) )
         return toInt(ival)
 
-    def setMaxLinearSolveFailures(self, max_fails):
+    def setMaxKSPFailures(self, max_fails):
         cdef PetscInt ival = asInt(max_fails)
         CHKERR( SNESSetMaxLinearSolveFailures(self.snes, ival) )
 
-    def getMaxLinearSolveFailures(self):
+    def getMaxKSPFailures(self):
         cdef PetscInt ival = 0
         CHKERR( SNESGetMaxLinearSolveFailures(self.snes, &ival) )
         return toInt(ival)
 
-    def getLinearSolveFailures(self):
+    def getKSPFailures(self):
         cdef PetscInt ival = 0
         CHKERR( SNESGetLinearSolveFailures(self.snes, &ival) )
         return toInt(ival)
+
+    setMaxNonlinearStepFailures = setMaxStepFailures
+    getMaxNonlinearStepFailures = getMaxStepFailures
+    getNonlinearStepFailures    = getStepFailures
+    setMaxLinearSolveFailures   = setMaxKSPFailures
+    getMaxLinearSolveFailures   = getMaxKSPFailures
+    getLinearSolveFailures      = getKSPFailures
 
     # --- solving ---
 

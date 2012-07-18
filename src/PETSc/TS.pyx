@@ -14,6 +14,7 @@ class TSType(object):
     GL       = S_(TSGL)
     SSP      = S_(TSSSP)
     ARKIMEX  = S_(TSARKIMEX)
+    ROSW     = S_(TSROSW)
     # aliases
     FE = EULER
     BE = BEULER
@@ -334,6 +335,85 @@ cdef class TS(Object):
         CHKERR( TSGetDuration(self.ts, &ival, &rval) )
         return (toReal(rval), toInt(ival))
 
+    def getSNESIterations(self):
+        cdef PetscInt n = 0
+        CHKERR( TSGetSNESIterations(self.ts, &n) )
+        return toInt(n)
+
+    def getKSPIterations(self):
+        cdef PetscInt n = 0
+        CHKERR( TSGetKSPIterations(self.ts, &n) )
+        return toInt(n)
+
+    def setMaxStepRejections(self, n):
+        cdef PetscInt rej = asInt(n)
+        CHKERR( TSSetMaxStepRejections(self.ts, rej))
+
+    #def getMaxStepRejections(self):
+    #    cdef PetscInt n = 0
+    #    CHKERR( TSGetMaxStepRejections(self.ts, &n))
+    #    return toInt(n)
+
+    def getStepRejections(self):
+        cdef PetscInt n = 0
+        CHKERR( TSGetStepRejections(self.ts, &n) )
+        return toInt(n)
+
+    def setMaxSNESFailures(self, n):
+        cdef PetscInt fails = asInt(n)
+        CHKERR( TSSetMaxSNESFailures(self.ts, fails))
+
+    #def getMaxSNESFailures(self, n):
+    #    cdef PetscInt n = 0
+    #    CHKERR( TSGetMaxSNESFailures(self.ts, &n))
+    #    return toInt(n)
+
+    def getSNESFailures(self):
+        cdef PetscInt n = 0
+        CHKERR( TSGetSNESFailures(self.ts, &n) )
+        return toInt(n)
+
+    def setErrorIfStepFails(self, flag=True):
+        cdef PetscBool bval = flag
+        CHKERR( TSSetErrorIfStepFails(self.ts, bval))
+
+    def setTolerances(self, rtol=None, atol=None):
+        cdef PetscReal rrtol = PETSC_DEFAULT
+        cdef PetscReal ratol = PETSC_DEFAULT
+        cdef PetscVec  vrtol = NULL
+        cdef PetscVec  vatol = NULL
+        if rtol is None:
+            pass
+        elif isinstance(rtol, Vec):
+            vrtol = (<Vec>rtol).vec
+        else:
+            rrtol = asReal(rtol)
+        if atol is None:
+            pass
+        elif isinstance(atol, Vec):
+            vatol = (<Vec>atol).vec
+        else:
+            ratol = asReal(atol)
+        CHKERR( TSSetTolerances(self.ts, ratol, vatol, rrtol, vrtol) )
+
+    def getTolerances(self):
+        cdef PetscReal rrtol = PETSC_DEFAULT
+        cdef PetscReal ratol = PETSC_DEFAULT
+        cdef PetscVec  vrtol = NULL
+        cdef PetscVec  vatol = NULL
+        CHKERR( TSGetTolerances(self.ts, &ratol, &vatol, &rrtol, &vrtol) )
+        cdef object rtol = None
+        if vrtol != NULL:
+            rtol = ref_Vec(vrtol)
+        else:
+            rtol = toReal(rrtol)
+        cdef object atol = None
+        if vatol != NULL:
+            atol = ref_Vec(vatol)
+        else:
+            atol = toReal(ratol)
+        return (rtol, atol)
+
     #def setExactFinalTime(self, flag=True):
     #    cdef PetscBool bval = flag
     #    CHKERR( TSSetExactFinalTime(self.ts, bval) )
@@ -352,7 +432,7 @@ cdef class TS(Object):
     def setMonitor(self, monitor, args=None, kargs=None):
         if monitor is None: return
         cdef object monitorlist = self.get_attr('__monitor__')
-        if monitorlist is None: 
+        if monitorlist is None:
             monitorlist = []
             self.set_attr('__monitor__', monitorlist)
             CHKERR( TSMonitorSet(self.ts, TS_Monitor, NULL, NULL) )
@@ -552,6 +632,18 @@ cdef class TS(Object):
             self.setMaxSteps(value)
 
     # --- convergence ---
+
+    property rtol:
+        def __get__(self):
+            return self.getTolerances()[0]
+        def __set__(self, value):
+            self.setTolerances(rtol=value)
+
+    property atol:
+        def __get__(self):
+            return self.getTolerances()[1]
+        def __set__(self, value):
+            self.setTolerances(atol=value)
 
     property reason:
         def __get__(self):

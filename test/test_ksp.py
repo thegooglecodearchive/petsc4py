@@ -107,6 +107,7 @@ class BaseTestKSP(object):
         A = PETSc.Mat().create(PETSc.COMM_SELF)
         A.setSizes([3,3])
         A.setType(PETSc.Mat.Type.SEQAIJ)
+        A.setPreallocationNNZ(1)
         for i in range(3):
             A.setValue(i, i, 0.9/(i+1))
         A.assemble()
@@ -173,8 +174,11 @@ class TestKSPRICHARDSON(BaseTestKSP, unittest.TestCase):
     KSP_TYPE = PETSc.KSP.Type.RICHARDSON
 
 class TestKSPCHEBYCHEV(BaseTestKSP, unittest.TestCase):
-    KSP_TYPE = PETSc.KSP.Type.CHEBYCHEV
-
+    try:
+        KSP_TYPE = PETSc.KSP.Type.CHEBYSHEV
+    except AttributeError:
+        KSP_TYPE = PETSc.KSP.Type.CHEBYCHEV
+        
 class TestKSPCG(BaseTestKSP, unittest.TestCase):
     KSP_TYPE = PETSc.KSP.Type.CG
 
