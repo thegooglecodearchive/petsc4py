@@ -63,7 +63,7 @@ cdef extern from * nogil:
     PetscErrorCode PetscObjectReference(PetscObject)
     ctypedef void (*PetscVoidFunction)()
     PetscErrorCode PetscObjectComposeFunction(PetscObject,char[],char[],void (*ptr)())
-    PetscErrorCode PetscTypeCompare(PetscObject,char[],PetscBool*)
+    PetscErrorCode PetscObjectTypeCompare(PetscObject,char[],PetscBool*)
     PetscErrorCode PetscObjectChangeTypeName(PetscObject, char[])
     PetscErrorCode PetscOptionsString(char[],char[],char[],char[],char[],size_t,PetscBool*)
     PetscErrorCode PetscOptionsGetString(char[],char[],char[],size_t,PetscBool*)
@@ -374,8 +374,8 @@ cdef createcontext(char name_p[]):
 
 cdef int viewcontext(_PyObj ctx, PetscViewer viewer) except -1:
     cdef PetscBool isascii = PETSC_FALSE, isstring = PETSC_FALSE
-    CHKERR( PetscTypeCompare(<PetscObject>viewer, PETSCVIEWERASCII,  &isascii)  )
-    CHKERR( PetscTypeCompare(<PetscObject>viewer, PETSCVIEWERSTRING, &isstring) )
+    CHKERR( PetscObjectTypeCompare(<PetscObject>viewer, PETSCVIEWERASCII,  &isascii)  )
+    CHKERR( PetscObjectTypeCompare(<PetscObject>viewer, PETSCVIEWERSTRING, &isstring) )
     cdef char *name = ctx.getname()
     if isascii:
         if name == NULL: name = b"unknown/no yet set"
@@ -443,9 +443,7 @@ cdef extern from * nogil:
         PetscErrorCode (*copy)(PetscMat,PetscMat,MatStructure) except IERR
         PetscErrorCode (*getsubmatrix)(PetscMat,PetscIS,PetscIS,MatReuse,PetscMat*) except IERR
         PetscErrorCode (*setoption)(PetscMat,MatOption,PetscBool) except IERR
-        PetscErrorCode (*setsizes)(PetscMat,PetscInt,PetscInt,PetscInt,PetscInt) except IERR
-        PetscErrorCode (*setblocksize)(PetscMat,PetscInt) except IERR
-        PetscErrorCode (*setup"setuppreallocation")(PetscMat) except IERR
+        PetscErrorCode (*setup"_MatOps_setup")(PetscMat) except IERR
         PetscErrorCode (*assemblybegin)(PetscMat,MatAssemblyType) except IERR
         PetscErrorCode (*assemblyend)(PetscMat,MatAssemblyType) except IERR
         PetscErrorCode (*zeroentries)(PetscMat) except IERR
@@ -529,8 +527,6 @@ cdef PetscErrorCode MatCreate_Python(
     ops.copy              = MatCopy_Python
     ops.getsubmatrix      = MatGetSubMatrix_Python
     ops.setoption         = MatSetOption_Python
-    ops.setsizes          = MatSetSizes_Python
-    ops.setblocksize      = MatSetBlockSize_Python
     ops.setup             = MatSetUp_Python
     ops.assemblybegin     = MatAssemblyBegin_Python
     ops.assemblyend       = MatAssemblyEnd_Python
@@ -704,37 +700,6 @@ cdef PetscErrorCode MatSetOption_Python(
     cdef setOption = PyMat(mat).setOption
     if setOption is not None:
         setOption(Mat_(mat), <long>op, <bint>flag)
-    return FunctionEnd()
-
-cdef PetscErrorCode MatSetSizes_Python(
-    PetscMat mat,
-    PetscInt m,PetscInt n,
-    PetscInt M,PetscInt N,
-    ) \
-    except IERR with gil:
-    FunctionBegin(b"MatSetSizes_Python")
-    CHKERR( PetscLayoutSetLocalSize(mat.rmap,m) )
-    CHKERR( PetscLayoutSetLocalSize(mat.cmap,n) )
-    CHKERR( PetscLayoutSetSize(mat.rmap,M) )
-    CHKERR( PetscLayoutSetSize(mat.cmap,N) )
-    cdef setSizes = PyMat(mat).setSizes
-    if setSizes is not None:
-        setSizes(Mat_(mat), (toInt(m), toInt(M)), (toInt(n), toInt(N)))
-    return FunctionEnd()
-
-cdef PetscErrorCode MatSetBlockSize_Python(
-    PetscMat mat,
-    PetscInt bs,
-    ) \
-    except IERR with gil:
-    FunctionBegin(b"MatSetBlockSize_Python")
-    CHKERR( PetscLayoutSetBlockSize(mat.rmap,bs) )
-    CHKERR( PetscLayoutSetBlockSize(mat.cmap,bs) )
-    CHKERR( PetscLayoutSetUp(mat.rmap)           )
-    CHKERR( PetscLayoutSetUp(mat.cmap)           )
-    cdef setBlockSize = PyMat(mat).setBlockSize
-    if setBlockSize is not None:
-        setBlockSize(Mat_(mat), toInt(bs))
     return FunctionEnd()
 
 cdef PetscErrorCode MatSetUp_Python(
@@ -2046,8 +2011,8 @@ cdef extern from * nogil:
         TSOps ops
         TSUserOps userops
         TSProblemType problem_type
-        PetscInt  nonlinear_its
-        PetscInt  linear_its
+        PetscInt  snes_its "_TSOps_snes_its"
+        PetscInt  ksp_its  "_TSOps_ksp_its"
         PetscInt  reject
         PetscInt  max_reject
         PetscInt  steps
@@ -2342,8 +2307,8 @@ cdef PetscErrorCode TSSolveStep_Python(
     cdef PetscInt nits = 0, lits = 0
     CHKERR( SNESGetIterationNumber(ts.snes,&nits) )
     CHKERR( SNESGetLinearSolveIterations(ts.snes,&lits) )
-    ts.nonlinear_its += nits
-    ts.linear_its    += lits
+    ts.snes_its += nits
+    ts.ksp_its  += lits
     return FunctionEnd()
 
 cdef PetscErrorCode TSAdaptStep_Python(
@@ -2451,30 +2416,23 @@ cdef PetscErrorCode PetscPythonMonitorSet_Python(
 
 # --------------------------------------------------------------------
 
-cdef extern from * nogil:
-    struct _p_PetscFwk
-    ctypedef _p_PetscFwk *PetscFwk
-
-cdef type Fwk
-from petsc4py.PETSc import Fwk
-
-cdef inline Object Fwk_(PetscFwk p):
-    cdef Object ob = Fwk.__new__(Fwk)
+cdef inline Object Shell_(PetscShell p):
+    cdef Shell ob = Shell.__new__(Shell)
     ob.obj[0] = newRef(p)
     return ob
 
-cdef PetscErrorCode PetscFwkPython_Call(
-    PetscFwk   component_p,
+cdef PetscErrorCode PetscShellPython_Call(
+    PetscShell   component_p,
     const_char *message_p,
     void       *vtable_p,
     ) \
     except IERR with gil:
-    FunctionBegin(b"PetscFwkPython_Call")
+    FunctionBegin(b"PetscShellPython_Call")
     assert component_p != NULL
     assert message_p   != NULL
     assert vtable_p    != NULL
     #
-    cdef component = Fwk_(component_p)
+    cdef component = Shell_(component_p)
     cdef vtable = <object> vtable_p
     cdef message = bytes2str(message_p)
     #
@@ -2487,14 +2445,14 @@ cdef PetscErrorCode PetscFwkPython_Call(
         function(component)
     return FunctionEnd()
 
-cdef PetscErrorCode PetscFwkPython_LoadVTable(
-    PetscFwk   component_p,
+cdef PetscErrorCode PetscShellPython_LoadVTable(
+    PetscShell   component_p,
     const_char *path_p,
     const_char *name_p,
     void       **vtable_p,
     ) \
     except IERR with gil:
-    FunctionBegin(b"PetscFwkPython_LoadVTable")
+    FunctionBegin(b"PetscShellPython_LoadVTable")
     assert component_p != NULL
     assert path_p      != NULL
     assert name_p      != NULL
@@ -2508,12 +2466,12 @@ cdef PetscErrorCode PetscFwkPython_LoadVTable(
     Py_INCREF(<PyObject*>vtable_p[0])
     return FunctionEnd()
 
-cdef PetscErrorCode PetscFwkPython_ClearVTable(
-    PetscFwk component_p,
+cdef PetscErrorCode PetscShellPython_ClearVTable(
+    PetscShell component_p,
     void     **vtable_p,
     ) \
     except IERR with gil:
-    FunctionBegin(b"PetscFwkPython_ClearVTable")
+    FunctionBegin(b"PetscShellPython_ClearVTable")
     assert component_p != NULL
     assert vtable_p    != NULL
     Py_DECREF(<PyObject*>vtable_p[0])
@@ -2545,12 +2503,12 @@ cdef extern from * nogil:
   PetscErrorCode (*PetscPythonMonitorSet_C) \
       (PetscObject, const_char[]) except IERR
 
-  PetscErrorCode (*PetscFwkPythonCall_C) \
-      (PetscFwk,const_char[],void *) except IERR
-  PetscErrorCode (*PetscFwkPythonLoadVTable_C) \
-      (PetscFwk,const_char[],const_char[],void**) except IERR
-  PetscErrorCode (*PetscFwkPythonClearVTable_C) \
-      (PetscFwk,void**) except IERR
+  PetscErrorCode (*PetscShellPythonCall_C) \
+      (PetscShell,const_char[],void *) except IERR
+  PetscErrorCode (*PetscShellPythonLoadVTable_C) \
+      (PetscShell,const_char[],const_char[],void**) except IERR
+  PetscErrorCode (*PetscShellPythonClearVTable_C) \
+      (PetscShell,void**) except IERR
 
 
 cdef public PetscErrorCode PetscPythonRegisterAll(char path[]) except IERR:
@@ -2567,13 +2525,13 @@ cdef public PetscErrorCode PetscPythonRegisterAll(char path[]) except IERR:
     global PetscPythonMonitorSet_C
     PetscPythonMonitorSet_C = PetscPythonMonitorSet_Python
 
-    # Python Fwk support
-    global PetscFwkPythonCall_C
-    PetscFwkPythonCall_C = PetscFwkPython_Call
-    global PetscFwkPythonLoadVTable_C
-    PetscFwkPythonLoadVTable_C = PetscFwkPython_LoadVTable
-    global PetscFwkPythonClearVTable_C
-    PetscFwkPythonClearVTable_C = PetscFwkPython_ClearVTable
+    # Python Shell support
+    global PetscShellPythonCall_C
+    PetscShellPythonCall_C = PetscShellPython_Call
+    global PetscShellPythonLoadVTable_C
+    PetscShellPythonLoadVTable_C = PetscShellPython_LoadVTable
+    global PetscShellPythonClearVTable_C
+    PetscShellPythonClearVTable_C = PetscShellPython_ClearVTable
 
     return FunctionEnd()
 

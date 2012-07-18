@@ -13,7 +13,7 @@ cdef extern from * nogil:
     PetscVecType VECCUSP
     PetscVecType VECNEST
     PetscVecType VECSEQPTHREAD
-    PetscVecType VECMPIPTHREAD "VECPTHREAD"
+    PetscVecType VECMPIPTHREAD
     PetscVecType VECPTHREAD
 
     ctypedef enum PetscVecOption "VecOption":
@@ -30,9 +30,9 @@ cdef extern from * nogil:
     int VecSetUp(PetscVec)
 
     int VecCreateSeq(MPI_Comm,PetscInt,PetscVec*)
-    int VecCreateSeqWithArray(MPI_Comm,PetscInt,PetscScalar[],PetscVec*)
+    int VecCreateSeqWithArray(MPI_Comm,PetscInt,PetscInt,PetscScalar[],PetscVec*)
     int VecCreateMPI(MPI_Comm,PetscInt,PetscInt,PetscVec*)
-    int VecCreateMPIWithArray(MPI_Comm,PetscInt,PetscInt,PetscScalar[],PetscVec*)
+    int VecCreateMPIWithArray(MPI_Comm,PetscInt,PetscInt,PetscInt,PetscScalar[],PetscVec*)
     int VecCreateGhost(MPI_Comm,PetscInt,PetscInt,PetscInt,PetscInt[],PetscVec*)
     int VecCreateGhostWithArray(MPI_Comm,PetscInt,PetscInt,PetscInt,PetscInt[],PetscScalar[],PetscVec*)
     int VecCreateGhostBlock(MPI_Comm,PetscInt,PetscInt,PetscInt,PetscInt,PetscInt[],PetscVec*)
@@ -51,8 +51,6 @@ cdef extern from * nogil:
 
     int VecGetArray(PetscVec,PetscScalar*[])
     int VecRestoreArray(PetscVec,PetscScalar*[])
-    int VecGetArrayC(PetscVec,PetscScalar*[])
-    int VecRestoreArrayC(PetscVec,PetscScalar*[])
     int VecPlaceArray(PetscVec,PetscScalar[])
     int VecResetArray(PetscVec)
 
@@ -137,8 +135,10 @@ cdef extern from * nogil:
     int VecStrideNorm(PetscVec,PetscInt,PetscNormType,PetscReal*)
 
     int VecGhostGetLocalForm(PetscVec,PetscVec*)
+    int VecGhostRestoreLocalForm(PetscVec,PetscVec*)
     int VecGhostUpdateBegin(PetscVec,PetscInsertMode,PetscScatterMode)
     int VecGhostUpdateEnd(PetscVec,PetscInsertMode,PetscScatterMode)
+    int VecMPISetGhost(PetscVec,PetscInt,const_PetscInt*)
 
 # --------------------------------------------------------------------
 
@@ -257,11 +257,9 @@ cdef Vec vec_rdiv(Vec self, other):
 
 # --------------------------------------------------------------------
 
-cdef inline int Vec_SplitSizes(MPI_Comm comm,
-                               object size, object bsize,
-                               PetscInt *b,
-                               PetscInt *n, PetscInt *N) except -1:
-    CHKERR( Sys_SplitSizes(comm, size, bsize, b, n, N) )
+cdef inline int Vec_Sizes(object size, object bsize,
+                          PetscInt *b, PetscInt *n, PetscInt *N) except -1:
+    Sys_Sizes(size, bsize, b, n, N)
     return 0
 
 # --------------------------------------------------------------------
@@ -474,5 +472,28 @@ cdef class _Vec_buffer:
                         data=self,
                         shape=(size,),
                         typestr=typestr)
+
+# --------------------------------------------------------------------
+
+cdef class _Vec_LocalForm:
+
+    "Context manager for `Vec` local form"
+
+    cdef Vec gvec
+    cdef Vec lvec
+
+    def __init__(self, Vec gvec not None):
+        self.gvec = gvec
+        self.lvec = Vec()
+
+    def __enter__(self):
+        cdef PetscVec gvec = self.gvec.vec
+        CHKERR( VecGhostGetLocalForm(gvec, &self.lvec.vec) )
+        return self.lvec
+
+    def __exit__(self, *exc):
+        cdef PetscVec gvec = self.gvec.vec
+        CHKERR( VecGhostRestoreLocalForm(gvec, &self.lvec.vec) )
+        self.lvec.vec = NULL
 
 # --------------------------------------------------------------------

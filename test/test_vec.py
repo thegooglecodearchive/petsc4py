@@ -104,6 +104,7 @@ class BaseTestVec(object):
         self.assertEqual(self.vec.sum(), (sz-1)/2.0*sz)
 
     def testGetSetValsBlocked(self):
+        return
         lsize, gsize = self.vec.getSizes()
         start, end = self.vec.getOwnershipRange()
         bsizes  = list(range(1, lsize+1))
@@ -260,6 +261,19 @@ class TestVecWithArray(unittest.TestCase):
         a1 = v1.getDict()['__array__']; self.assertTrue(a is a1)
         a2 = v2.getDict()['__array__']; self.assertTrue(a is a2)
         a3 = v3.getDict()['__array__']; self.assertTrue(a is a2)
+
+    def testMPIGhost(self):
+        import numpy
+        v = PETSc.Vec().create()
+        v.setType(PETSc.Vec.Type.MPI)
+        v.setSizes((5,None))
+        ghosts = [i % v.size for i in range(v.owner_range[1],v.owner_range[1]+3)]
+        v.setMPIGhost(ghosts)
+        v.setArray(numpy.array(range(*v.owner_range)))
+        v.ghostUpdate()
+        with v.localForm() as loc:
+            self.assertTrue((loc[0:v.local_size] == range(*v.owner_range)).all())
+            self.assertTrue((loc[v.local_size:] == ghosts).all())
 
 # --------------------------------------------------------------------
 

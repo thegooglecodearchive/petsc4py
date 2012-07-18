@@ -21,7 +21,7 @@ cdef extern from * nogil:
     int PetscObjectSetName(PetscObject,char[])
     int PetscObjectGetName(PetscObject,char*[])
 
-    int PetscTypeCompare(PetscObject,char[],PetscBool*)
+    int PetscObjectTypeCompare(PetscObject,char[],PetscBool*)
     int PetscObjectCompose(PetscObject,char[],PetscObject)
     int PetscObjectQuery(PetscObject,char[],PetscObject*)
 
@@ -109,6 +109,9 @@ cdef object PetscSetPyObj(PetscObject o, char name[], object p):
 
 # --------------------------------------------------------------------
 
+cdef extern from *:
+    object PyLong_FromVoidPtr(void*)
+
 cdef inline long Object_toFortran(PetscObject o) nogil:
     return <long> o
 
@@ -120,18 +123,7 @@ cdef inline type subtype_DM(PetscDM dm):
     if obj == NULL: return klass
     cdef PetscBool match = PETSC_FALSE
     # -- DA --
-    CHKERR( PetscTypeCompare(obj, b"da", &match) )
-    if match == PETSC_FALSE:
-        if (PETSC_VERSION_MAJOR == 3 and
-            PETSC_VERSION_MINOR == 1): # petsc-3.1
-            CHKERR( PetscTypeCompare(obj, b"da1d", &match) )
-            if match == PETSC_FALSE:
-                CHKERR( PetscTypeCompare(obj, b"da2d", &match) )
-                if match == PETSC_FALSE:
-                    CHKERR( PetscTypeCompare(obj, b"da3d", &match) )
-        if (PETSC_VERSION_MAJOR == 3 and
-            PETSC_VERSION_MINOR == 0): # petsc-3.0
-            CHKERR( PetscTypeCompare(obj, b"DA", &match) )
+    CHKERR( PetscObjectTypeCompare(obj, b"da", &match) )
     if match == PETSC_TRUE: klass = DA
     # --------
     return klass

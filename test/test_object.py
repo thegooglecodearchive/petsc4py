@@ -87,6 +87,16 @@ class BaseTestObject(object):
         self.obj.decRef()
         self.assertFalse(bool(self.obj))
 
+    def testHandle(self):
+        self.assertTrue(self.obj.handle)
+        self.assertTrue(self.obj.fortran)
+        h, f = self.obj.handle, self.obj.fortran
+        if (h>0 and f>0) or (h<0 and f<0):
+            self.assertEqual(h, f)
+        self.obj.destroy()
+        self.assertFalse(self.obj.handle)
+        self.assertFalse(self.obj.fortran)
+
     def testComposeQuery(self):
         self.assertEqual(self.obj.getRefCount(), 1)
         self.obj.compose('myobj', self.obj)
@@ -223,8 +233,8 @@ class TestObjectAOMapping(BaseTestObject, unittest.TestCase):
     FACTORY = 'createMapping'
     TARGS = ([], [])
 
-class TestObjectFwk(BaseTestObject, unittest.TestCase):
-    CLASS = PETSc.Fwk
+class TestObjectShell(BaseTestObject, unittest.TestCase):
+    CLASS = PETSc.Shell
     FACTORY = 'create'
 
 if PETSc.Sys.getVersion() <= (3,1,0):

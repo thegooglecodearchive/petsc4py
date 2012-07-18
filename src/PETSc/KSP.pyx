@@ -2,7 +2,7 @@
 
 class KSPType(object):
     RICHARDSON = S_(KSPRICHARDSON)
-    CHEBYCHEV  = S_(KSPCHEBYCHEV)
+    CHEBYSHEV  = S_(KSPCHEBYSHEV)
     CG         = S_(KSPCG)
     CGNE       = S_(KSPCGNE)
     NASH       = S_(KSPNASH)
@@ -12,6 +12,7 @@ class KSPType(object):
     FGMRES     = S_(KSPFGMRES)
     LGMRES     = S_(KSPLGMRES)
     DGMRES     = S_(KSPDGMRES)
+    PGMRES     = S_(KSPPGMRES)
     TCQMR      = S_(KSPTCQMR)
     BCGS       = S_(KSPBCGS)
     IBCGS      = S_(KSPIBCGS)
@@ -26,10 +27,8 @@ class KSPType(object):
     MINRES     = S_(KSPMINRES)
     SYMMLQ     = S_(KSPSYMMLQ)
     LCD        = S_(KSPLCD)
-    BROYDEN    = S_(KSPBROYDEN)
     PYTHON     = S_(KSPPYTHON)
     GCR        = S_(KSPGCR)
-    NGMRES     = S_(KSPNGMRES)
     SPECEST    = S_(KSPSPECEST)
 
 class KSPNormType(object):
